@@ -18,7 +18,7 @@ void SeamHorizontal(cv::Mat3b& img, cv::Mat1b& border, cv::Mat1i& displacement, 
 int main(int argc, char** argv )
 {
     cv::Mat3b image;
-    image = cv::imread( argv[1], 1 );
+    image = cv::imread( argv[1], cv::IMREAD_COLOR );
     if ( !image.data )
     {
         printf("No image data \n");
