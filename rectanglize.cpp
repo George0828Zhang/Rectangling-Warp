@@ -365,10 +365,15 @@ void FindBorder(cv::Mat3b const& img, cv::Mat1b& out){
 		test.pop();        
 	}
 
+	// cv::Mat tmp;
+	// cv::GaussianBlur(out, tmp, cv::Size(5, 5), 0, 0, cv::BORDER_DEFAULT);
+	// cv::threshold(tmp, out, 0, 255, cv::THRESH_BINARY);
+	int dilation_size = 5;
+	auto element = cv::getStructuringElement( cv::MORPH_RECT, cv::Size(dilation_size, dilation_size) );
 	cv::Mat tmp;
-	cv::GaussianBlur(out, tmp, cv::Size(5, 5), 0, 0, cv::BORDER_DEFAULT);
-	cv::threshold(tmp, out, 120, 255, cv::THRESH_BINARY);
-
+	cv::dilate( out, tmp, element );
+	cv::GaussianBlur(tmp, out, cv::Size(13, 13), 0, 0, cv::BORDER_DEFAULT);
+	cv::threshold(out, out, 0, 255, cv::THRESH_BINARY);
 }
 void localWarping(cv::Mat3b& img, cv::Mat2i& displacement){
 	cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
@@ -376,6 +381,8 @@ void localWarping(cv::Mat3b& img, cv::Mat2i& displacement){
 	cv::Mat1b border;
 	cv::Mat1b seamed(img.size(), 0);
 	FindBorder(img, border);
+	cv::imshow("Display Image", border);
+	cv::waitKey(0);
 
 	int tp;
 	cv::Rect sub;
@@ -417,7 +424,7 @@ void localWarping(cv::Mat3b& img, cv::Mat2i& displacement){
 	cv::waitKey(0);
 	cv::imshow("Display Image", seamed);
 	cv::waitKey(0);
-	cv::imwrite("image.png", img);
+	cv::imwrite("out.png", img);
 	cv::imwrite("seams.png", seamed);
 }
 
