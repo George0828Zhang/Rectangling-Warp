@@ -25,11 +25,28 @@ int main(int argc, char** argv )
 	// cv::imwrite("pano_compact.png", image);
 	cropOuter(image);
 
-	cv::Mat2i displace(image.size(), cv::Vec2i(0));
+	cv::Mat2i displace = cv::Mat2i::zeros(image.size());
 	localWarping(image, displace);
 
-	// cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
-	// cv::imshow("Display Image", image);
+
+    displace = displace.mul(displace);
+    cv::normalize(displace, displace, 0, 255, cv::NORM_MINMAX, -1);
+    cv::Mat2b dis(displace);
+    std::vector<cv::Mat> out(2);
+    cv::split(dis, out);
+    out.push_back(cv::Mat1b::zeros(dis.size()));
+    std::swap(out[1], out[2]);
+
+    
+    cv::Mat tmp;
+    cv::merge(out, tmp);
+    // cerr << "success" << endl;
+
+	cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
+    // cv::imwrite("shifted.png", tmp);
+	cv::imshow("Display Image", tmp);
+    cv::waitKey(0);
+ //    cv::imshow("Display Image", out[1]);
 	// cv::waitKey(0);
 	// cv::imshow("Display Image", border);
 	// cv::waitKey(0);
@@ -372,17 +389,17 @@ void FindBorder(cv::Mat3b const& img, cv::Mat1b& out){
 	auto element = cv::getStructuringElement( cv::MORPH_RECT, cv::Size(dilation_size, dilation_size) );
 	cv::Mat tmp;
 	cv::dilate( out, tmp, element );
-	cv::GaussianBlur(tmp, out, cv::Size(13, 13), 0, 0, cv::BORDER_DEFAULT);
+	cv::GaussianBlur(tmp, out, cv::Size(11, 11), 0, 0, cv::BORDER_DEFAULT);
 	cv::threshold(out, out, 0, 255, cv::THRESH_BINARY);
 }
 void localWarping(cv::Mat3b& img, cv::Mat2i& displacement){
-	cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
+	// cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
 	int r = img.rows, c = img.cols;
 	cv::Mat1b border;
 	cv::Mat1b seamed(img.size(), 0);
 	FindBorder(img, border);
-	cv::imshow("Display Image", border);
-	cv::waitKey(0);
+	// cv::imshow("Display Image", border);
+	// cv::waitKey(0);
 
 	int tp;
 	cv::Rect sub;
@@ -415,7 +432,7 @@ void localWarping(cv::Mat3b& img, cv::Mat2i& displacement){
 			// cerr << "1 seams right." << endl;
 			break;
 		}
-		// cv::imshow("Display Image", border);
+		// cv::imshow("Display Image", img);
 		// cv::waitKey(0);
 	}
 
