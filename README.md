@@ -7,6 +7,9 @@ To generate Makefile:
 mkdir build
 ```
 ```bash
+cd build
+```
+```bash
 cmake ..
 ```
 To compile
