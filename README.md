@@ -4,7 +4,10 @@ Implementing the technique of rectangling panoramic images via warping [He and C
 ## Compile
 To generate Makefile:
 ```bash
-cmake .
+mkdir build
+```
+```bash
+cmake ..
 ```
 To compile
 ```bash
