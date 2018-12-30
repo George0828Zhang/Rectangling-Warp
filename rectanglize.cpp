@@ -78,47 +78,15 @@ void UnwarpGrid(cv::Mat2i const& displacement, std::vector<cv::Point>& out){
 	}
 	out.resize(p);
 }
-void shift(
-	cv::Mat2i& displacement,
-	cv::Point2i const& at, 
-	char type)
-{
-	int r = displacement.rows, c = displacement.cols;
-	cv::Rect from, cpto;
-	cv::Vec2i offset;
 
-	switch(type){
-		case 'u':
-		// from = cv::Rect(at.x, 1, 1, at.y);
-		cpto = cv::Rect(at.x, 0, 1, at.y);
-		offset = cv::Vec2i(0, -1);
-		break;
-		case 'd':
-		// from = cv::Rect(at.x, at.y, 1, r-1-at.y);
-		cpto = cv::Rect(at.x, at.y+1, 1, r-1-at.y);
-		offset = cv::Vec2i(0, 1);
-		break;
-		case 'l':
-		// from = cv::Rect(1, at.y, at.x, 1);
-		cpto = cv::Rect(0, at.y, at.x, 1);
-		offset = cv::Vec2i(-1, 0);
-		break;
-		case 'r':
-		// from = cv::Rect(at.x, at.y, c-1-at.x, 1);
-		cpto = cv::Rect(at.x+1, at.y, c-1-at.x, 1);
-		offset = cv::Vec2i(1, 0);
-		break;
-	}
-	displacement(cpto) += offset;
-}
 
 DyArray<double> delta;
 DyArray<int> phi;
 void SeamHorizontal(
 	cv::Mat1b& img, 
 	cv::Mat1b& border, 
-	cv::Mat1b& seamed, 
-	cv::Mat2i& displacement, 
+	cv::Mat1b& seamed,
+    cv::Mat4i& displacements,
 	cv::Mat1f& energy, 
 	bool up)
 {
@@ -170,10 +138,11 @@ void SeamHorizontal(
 	for(int j = c-1; j >= 0; j--){
 		
 		if(up && best_i > 0){
-			shift(displacement, cv::Point2i(j, best_i),'u');
+            displacements[best_i][j][0] += 1;
 		}
-		else if(best_i < r-1){
-			shift(displacement, cv::Point2i(j, best_i),'d');
+		else if(best_i < r-1){          
+            displacements[best_i][j][1] += 1;
+
 		}
 
 		seamed[best_i][j] = 255;
@@ -200,7 +169,7 @@ void SeamVertical(
 	cv::Mat1b& img, 
 	cv::Mat1b& border, 
 	cv::Mat1b& seamed, 
-	cv::Mat2i& displacement, 
+    cv::Mat4i& displacements, 
 	cv::Mat1f& energy, 
 	bool left)
 {
@@ -251,10 +220,10 @@ void SeamVertical(
 	for(int i = r-1; i >= 0; i--){
 		
 		if(left && best_j > 0){
-			shift(displacement, cv::Point2i(best_j, i),'l');
+            displacements[i][best_j][2] += 1;
 		}
 		else if(best_j < c-1){
-			shift(displacement, cv::Point2i(best_j, i),'r');
+            displacements[i][best_j][3] += 1;
 		}
 
 		seamed[i][best_j] = 255;
@@ -405,6 +374,7 @@ void localWarping(cv::Mat3b const& image, cv::Mat2i& displacement){
     cv::Mat1b border_tmp;
 	cv::Mat1b seamed;
     cv::Mat1b tmp;
+    cv::Mat4i disps = cv::Mat4i::zeros(r, c);
 
 	cv::Rect sub;
     cv::Rect from, cpto;
@@ -470,10 +440,10 @@ void localWarping(cv::Mat3b const& image, cv::Mat2i& displacement){
     for(int i = 0; i < subseq.size(); i++){
         sub = subseq[i];
         auto img_sub = img(sub);
-        auto border_sub = border(sub);
-        auto disp_sub = displacement(sub);
+        auto border_sub = border(sub);        
         auto seamed_sub = seamed(sub);
         auto energy_sub = energy(sub);
+        auto disp_sub = disps(sub);
 
         switch(tpseq[i]){
             case 0:
@@ -497,8 +467,32 @@ void localWarping(cv::Mat3b const& image, cv::Mat2i& displacement){
             // cerr << "1 seams right." << endl;
             break;
         }
+        cerr << "(" << i+1 << "/" << subseq.size() << ") seams done" << "\r";
     }
-    cerr << "Done" << endl;
+    cerr << endl << "Done" << endl;
+
+    // compute displacement
+    // cerr << "all zero? " << (cv::countNonZero(disps)==0) << endl;
+    for(int i = 1; i < r; i++){
+        for(int j = 0; j < c; j++){
+            disps[r-1-i][j][0] += disps[r-i][j][0];
+            disps[i][j][1] += disps[i-1][j][1];
+        }
+    }
+    for(int j = 1; j < c; j++){
+        for(int i = 0; i < r; i++){
+            disps[i][c-1-j][2] += disps[i][c-j][2];
+            disps[i][j][3] += disps[i][j-1][3];
+        }
+    }
+    for(int i = 0; i < r; i++){
+        for(int j = 0; j < c; j++){
+            int y = disps[i][j][1] - disps[i][j][0]; 
+            int x = disps[i][j][3] - disps[i][j][2]; 
+            displacement[i][j] = cv::Vec2i(x, y);
+        }
+    }
+
 
     // local warping
     cv::Mat1b imgsrc;
