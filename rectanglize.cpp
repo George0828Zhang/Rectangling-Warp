@@ -11,15 +11,15 @@
 
 #include <string>
 
-constexpr double inf = 100000000;//std::numeric_limits<double>::infinity();
-constexpr double DARKTHRES = 2.5;
+constexpr float inf = 100000000;//std::numeric_limits<double>::infinity();
+constexpr float DARKTHRES = 2.5;
 const cv::Vec3b DARKPIX = cv::Vec3b({0,0,0});
 
 using namespace std;
 
 void cropOuter(cv::Mat3b& img);
 void localWarping(cv::Mat3b const& img, cv::Mat1b& border, cv::Mat2i& displacement);
-void UnwarpGrid(cv::Mat2i const& displacement, std::vector<cv::Point>& out, int rowdiv);
+void UnwarpGrid(cv::Mat2i const& displacement, std::vector<cv::Point>& vertex_map, std::vector<cv::Vec4i>& quads, std::vector<int> bound_types, int rowdiv);
 void GetLines(cv::Mat3b const& img, std::vector<cv::Vec4i>& out);
 
 int main(int argc, char** argv )
@@ -31,34 +31,175 @@ int main(int argc, char** argv )
 		printf("No image data \n");
 		return -1;
 	}
-	// cv::resize(image, image, cv::Size(), 0.5, 0.5, cv::INTER_CUBIC);
-	// cv::imwrite("pano_compact.png", image);
 	cropOuter(image);
 
 	cv::Mat2i displace = cv::Mat2i::zeros(image.size());
     cv::Mat1b border;
 	localWarping(image, border, displace);
+
 	std::vector<cv::Point> Mesh;
-	UnwarpGrid(displace, Mesh, 20);
+    std::vector<cv::Vec4i> Quad;
+    std::vector<int> Boundary_types;
+	UnwarpGrid(displace, Mesh, Quad, Boundary_types, 20);
 
     std::vector<cv::Vec4i> lines;
     GetLines(image, lines);
 
-    for(auto& p : Mesh){
-        cv::circle(image, p, 2.5, cv::Scalar(255), -1);
-    }
-    for( auto& l : lines )
-    {
-        if(border(cv::Point(l[0], l[1]))==0 || border(cv::Point(l[2], l[3]))==0)
-            cv::line( image, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(0,0,255), 2, 8 );
-    }
+    // for(auto& p : Mesh){
+    //     cv::circle(image, p, 2.5, cv::Scalar(255), -1);
+    // }
+    // for( auto& l : lines )
+    // {
+    //     if(border(cv::Point(l[0], l[1]))==0 || border(cv::Point(l[2], l[3]))==0)
+    //         cv::line( image, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(0,0,255), 2, 8 );
+    // }
 
-	cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
-	cv::imshow("Display Image", image);
-	cv::waitKey(0);
+
+    // cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
+    // cout << Quad.size() << endl;
+    // int p;
+    // while(cin >> p){
+    //     cv::circle(image, Mesh[Quad[p][0]], 2.5, cv::Scalar(255), -1);
+    // cv::imshow("Display Image", image);
+    // cv::waitKey(0);
+    //     cv::circle(image, Mesh[Quad[p][1]], 2.5, cv::Scalar(255), -1);
+    // cv::imshow("Display Image", image);
+    // cv::waitKey(0);
+    //     cv::circle(image, Mesh[Quad[p][2]], 2.5, cv::Scalar(255), -1);
+    // cv::imshow("Display Image", image);
+    // cv::waitKey(0);
+    //     cv::circle(image, Mesh[Quad[p][3]], 2.5, cv::Scalar(255), -1);
+    // cv::imshow("Display Image", image);
+    // cv::waitKey(0);
+    // }
 
 	return 0;
 }
+
+void DrawMatrix(
+    int Rows, int Cols,
+    std::vector<cv::Vec4i> const& Quad, 
+    std::vector<int> const& Boundary_types, 
+    std::vector<cv::Point> const& vertex_map, 
+    std::vector<cv::Vec4i> const& seg_lines )
+{
+    int N = Quad.size();
+    int M = seg_lines.size();    
+    int K = 0;
+    for(auto& type : Boundary_types){
+        if(type >= 0 && type <= 3) K++;
+    }// count number of vertices that is on boundary
+    int rows = 8*N + 2*M + K + 1;
+    int columns = 8*N;
+
+    cv::Mat1f A = cv::Mat1f::zeros(rows, columns); 
+    cv::Mat1f b = cv::Mat1f::zeros(rows, 1);
+
+    // Shape Preservation 8Nx8N
+    for(int i = 0; i < N; i++){
+        cv::Vec4i qd = Quad[i];
+        cv::Mat1f Aq(8, 4);
+
+        for(int v = 0; v < 4; v++){
+            int index = qd[v];
+            int x = vertex_map[index].x;
+            int y = vertex_map[index].y;
+
+            Aq[2*v][0] = x;
+            Aq[2*v][1] = -y;
+            Aq[2*v][2] = 1;
+            Aq[2*v][3] = 0;
+
+            Aq[2*v+1][0] = y;
+            Aq[2*v+1][1] = x;
+            Aq[2*v+1][2] = 0;
+            Aq[2*v+1][3] = 1;
+        }
+
+        cv::Mat1f AA_pI = Aq.inv(cv::DECOMP_SVD)*Aq - cv::Mat::eye(8, 8, CV_32F);
+
+        AA_pI.copyTo(A(cv::Rect(i*8, i*8, 8, 8)));
+    }
+
+    // Line Preservation Mx8N
+
+    // Boundary Constraint Kx8N, K < N
+    for(int i = 0, base = 8*M + 2*N; i < N; i++){
+        cv::Vec4i qd = Quad[i];
+
+        for(int v = 0; v < 4; v++){
+            int v_index = qd[v];
+
+            if(Boundary_types[v_index]<0 || Boundary_types[v_index]>3)
+                continue;
+
+            int x = vertex_map[v_index].x;
+            int y = vertex_map[v_index].y;
+            
+            int t = Boundary_types[v_index];
+
+            switch(t){
+                case 0:// up
+                A[ base + v_index ][ i * 8 + v * 2 + 1 ] = inf;
+                b[ base + v_index ][0] = 0;
+                break;
+                case 1:// down
+                A[ base + v_index ][ i * 8 + v * 2 + 1 ] = inf;
+                b[ base + v_index ][0] = Rows - 1;
+                break;
+                case 2:// left
+                A[ base + v_index ][ i * 8 + v * 2 ] = inf;
+                b[ base + v_index ][0] = 0;
+                break;
+                case 3:// right
+                A[ base + v_index ][ i * 8 + v * 2 ] = inf;
+                b[ base + v_index ][0] = Cols - 1;
+                break;
+                default:// not boundary quad
+                break;
+            }
+        }
+    }
+
+
+    // Equivalence Constraint
+    int pairs[6][2] = {{0, 3}, {1, 2}, {3, 2}, {1, 0}, {1, 3}, {0, 2}};
+    for(int i = 0, base = 8*M + 2*N + K; i < N; i++){
+        cv::Vec4i qd = Quad[i];
+        for(int j = i+1; j < N; j++){
+            cv::Vec4i qsrch = Quad[j];
+            for(int term = 0; term < 4; term++){
+                int idir = pairs[term][0];
+                int jdir = pairs[term][1];
+                int i_index = qd[idir];
+                int j_index = qsrch[jdir];
+
+                if(j_index == i_index){
+                    A[ base + term ][ 8 * i + idir ] = inf;
+                    A[ base + term ][ 8 * j + jdir ] = -inf;
+                    b[ base + term ][0] = 0;
+                }
+            }
+        }
+    }
+
+    cv::Mat1f result;
+    cv::solve(A, b, result, cv::DECOMP_SVD);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 void GetLines(cv::Mat3b const& img, std::vector<cv::Vec4i>& out){
     cv::Mat response;
@@ -87,20 +228,45 @@ void GetLines(cv::Mat3b const& img, std::vector<cv::Vec4i>& out){
 ////////////////////// Local Warping
 
 void inc(int& v, int i, int cap){
-	v = cap-v<i/2? cap+1 : std::min(v+i, cap);
+	v = v==cap ? cap+1 : std::min(v+i, cap);
 }
-void UnwarpGrid(cv::Mat2i const& displacement, std::vector<cv::Point>& out, int rowdiv){
+void UnwarpGrid(
+    cv::Mat2i const& displacement, 
+    std::vector<cv::Point>& vertex_map, 
+    std::vector<cv::Vec4i>& quads,
+    std::vector<int> bound_types,
+    int rowdiv)
+{
 	int r = displacement.rows, c = displacement.cols;
 	int g = (int)std::floor(r/rowdiv);
-	int V = (int)(std::ceil(r/(double)g)+1)*(std::ceil(c/(double)g)+1);
-	out.resize(V);
+    int virt_elem = (int)std::ceil(r/(double)g)+1;
+    int hori_elem = (int)std::ceil(c/(double)g)+1;
+	int V = virt_elem * hori_elem;
+	vertex_map.resize(V);
+    bound_types.resize(V);
 	int p = 0;
-	for(int x = 0; x < c && p < V; inc(x, g, c-1)){
-		for(int y = 0; y < r && p < V; inc(y, g, r-1)){
-			out[p++] = cv::Point(-displacement[y][x]) + cv::Point(x, y);
+	for(int x = 0; x < c; inc(x, g, c-1)){
+		for(int y = 0; y < r; inc(y, g, r-1)){
+			vertex_map[p] = cv::Point(-displacement[y][x]) + cv::Point(x, y);            
+            
+            if(y==0){
+                bound_types[p] = 0;
+            }else if(x == c - 1){
+                bound_types[p] = 3;
+            }else if(y == r - 1){
+                bound_types[p] = 1;
+            }else if(x == 0){
+                bound_types[p] = 2;
+            }else
+                bound_types[p] = -1;
+
+            if(x > 0 && y > 0){
+                quads.push_back({p - virt_elem - 1, p - 1, p - virt_elem, p});
+            }
+
+            p++;
 		}
 	}
-	out.resize(p);
 }
 
 
@@ -531,8 +697,6 @@ void localWarping(cv::Mat3b const& image, cv::Mat1b& border, cv::Mat2i& displace
 	}
 	
 	cv::imwrite("results/out.png", img);
-        cv::imshow("Display Image", img);
-        cv::waitKey(0);
 	cv::imwrite("results/seams.png", seamed);
 	cv::imwrite("results/border.png", border);
 
