@@ -12,17 +12,24 @@
 #include <string>
 #include "LineSeg.h"
 
-void GeneratingQuad(cv::Vec4i& Quad, std::vector<cv::Point>& vertexMap, LineSeg Edges);
 constexpr float inf = 100000000;//std::numeric_limits<double>::infinity();
 constexpr float DARKTHRES = 2.5;
 const cv::Vec3b DARKPIX = cv::Vec3b({0,0,0});
 
 using namespace std;
 
+void GeneratingQuad(cv::Vec4i const& Quad, std::vector<cv::Point> const& vertexMap, LineSeg Edges, cv::Mat1f& out);
 void cropOuter(cv::Mat3b& img);
 void localWarping(cv::Mat3b const& img, cv::Mat1b& border, cv::Mat2i& displacement);
-void UnwarpGrid(cv::Mat2i const& displacement, std::vector<cv::Point>& vertex_map, std::vector<cv::Vec4i>& quads, std::vector<int> bound_types, int rowdiv);
+void UnwarpGrid(cv::Mat2i const& displacement, std::vector<cv::Point>& vertex_map, std::vector<cv::Vec4i>& quads, std::vector<int>& bound_types, int rowdiv);
 void GetLines(cv::Mat3b const& img, std::vector<cv::Vec4i>& out);
+void DrawMatrix(
+    int Rows, int Cols,
+    std::vector<cv::Vec4i> const& Quad, 
+    std::vector<int> const& Boundary_types, 
+    std::vector<cv::Point> const& vertex_map, 
+    std::vector<cv::Vec4i> const& seg_lines,
+    cv::Mat3b& img );
 
 int main(int argc, char** argv )
 {
@@ -47,9 +54,10 @@ int main(int argc, char** argv )
     std::vector<cv::Vec4i> lines;
     GetLines(image, lines);
 
-    // for(auto& p : Mesh){
-    //     cv::circle(image, p, 2.5, cv::Scalar(255), -1);
-    // }
+    cv::Mat3b tmp(image);
+    for(auto& p : Mesh){
+        cv::circle(tmp, p, 2.5, cv::Scalar(255), -1);
+    }
     // for( auto& l : lines )
     // {
     //     if(border(cv::Point(l[0], l[1]))==0 || border(cv::Point(l[2], l[3]))==0)
@@ -71,9 +79,12 @@ int main(int argc, char** argv )
     // cv::imshow("Display Image", image);
     // cv::waitKey(0);
     //     cv::circle(image, Mesh[Quad[p][3]], 2.5, cv::Scalar(255), -1);
-    // cv::imshow("Display Image", image);
-    // cv::waitKey(0);
+    cv::imshow("Display Image", tmp);
+    cv::waitKey(0);
     // }
+
+    DrawMatrix(image.rows, image.cols, Quad, Boundary_types, Mesh, lines, image);
+
 
 	return 0;
 }
@@ -83,16 +94,18 @@ void DrawMatrix(
     std::vector<cv::Vec4i> const& Quad, 
     std::vector<int> const& Boundary_types, 
     std::vector<cv::Point> const& vertex_map, 
-    std::vector<cv::Vec4i> const& seg_lines )
+    std::vector<cv::Vec4i> const& seg_lines,
+    cv::Mat3b& img )
 {
     int N = Quad.size();
-    int M = seg_lines.size();    
+    int M = 0;//seg_lines.size();    
     int K = 0;
     for(auto& type : Boundary_types){
         if(type >= 0 && type <= 3) K++;
     }// count number of vertices that is on boundary
     int rows = 8*N + 2*M + K + 1;
     int columns = 8*N;
+
 
     cv::Mat1f A = cv::Mat1f::zeros(rows, columns); 
     cv::Mat1f b = cv::Mat1f::zeros(rows, 1);
@@ -118,12 +131,23 @@ void DrawMatrix(
             Aq[2*v+1][3] = 1;
         }
 
-        cv::Mat1f AA_pI = Aq.inv(cv::DECOMP_SVD)*Aq - cv::Mat::eye(8, 8, CV_32F);
+
+        cv::Mat AA_pI = Aq*Aq.inv(cv::DECOMP_SVD) - cv::Mat1f::eye(8, 8);
 
         AA_pI.copyTo(A(cv::Rect(i*8, i*8, 8, 8)));
     }
-
     // Line Preservation Mx8N
+    for(int i =0 ; i < N; i++)
+    {
+        for(int j = 0 ;j < M ;j++)
+        {
+            cv::Mat1f vec_diff = cv::Mat1f::zeros(2,8);
+            //std::vector<cv::Vec4i> const& seg_lines
+            LineSeg my_line(cv::Point2f(seg_lines[j][0],seg_lines[j][1]), cv::Point2f(seg_lines[j][2],seg_lines[j][3]));
+            GeneratingQuad(Quad[i], vertex_map, my_line, vec_diff);
+            vec_diff.copyTo(A(cv::Rect(j*8, i*2, 8, 2)));
+        }
+    }
 
     // Boundary Constraint Kx8N, K < N
     for(int i = 0, base = 8*M + 2*N; i < N; i++){
@@ -132,8 +156,12 @@ void DrawMatrix(
         for(int v = 0; v < 4; v++){
             int v_index = qd[v];
 
+
+            // cout << i << " " << v << " " << v_index << " " << Boundary_types[v_index] << endl;
+
             if(Boundary_types[v_index]<0 || Boundary_types[v_index]>3)
                 continue;
+
 
             int x = vertex_map[v_index].x;
             int y = vertex_map[v_index].y;
@@ -147,7 +175,7 @@ void DrawMatrix(
                 break;
                 case 1:// down
                 A[ base + v_index ][ i * 8 + v * 2 + 1 ] = inf;
-                b[ base + v_index ][0] = Rows - 1;
+                b[ base + v_index ][0] = (Rows - 1)*inf;
                 break;
                 case 2:// left
                 A[ base + v_index ][ i * 8 + v * 2 ] = inf;
@@ -155,7 +183,7 @@ void DrawMatrix(
                 break;
                 case 3:// right
                 A[ base + v_index ][ i * 8 + v * 2 ] = inf;
-                b[ base + v_index ][0] = Cols - 1;
+                b[ base + v_index ][0] = (Cols - 1)*inf;
                 break;
                 default:// not boundary quad
                 break;
@@ -163,30 +191,41 @@ void DrawMatrix(
         }
     }
 
-
     // Equivalence Constraint
     int pairs[6][2] = {{0, 3}, {1, 2}, {3, 2}, {1, 0}, {1, 3}, {0, 2}};
     for(int i = 0, base = 8*M + 2*N + K; i < N; i++){
         cv::Vec4i qd = Quad[i];
         for(int j = i+1; j < N; j++){
             cv::Vec4i qsrch = Quad[j];
-            for(int term = 0; term < 4; term++){
+            for(int term = 0; term < 6; term++){
                 int idir = pairs[term][0];
                 int jdir = pairs[term][1];
                 int i_index = qd[idir];
                 int j_index = qsrch[jdir];
 
                 if(j_index == i_index){
-                    A[ base + term ][ 8 * i + idir ] = inf;
-                    A[ base + term ][ 8 * j + jdir ] = -inf;
-                    b[ base + term ][0] = 0;
+                    A[ base + (term/2) ][ 8 * i + idir ] = inf;
+                    A[ base + (term/2) ][ 8 * j + jdir ] = -inf;
+                    b[ base + (term/2) ][0] = 0;
                 }
             }
         }
     }
 
+    cerr << "ready for solve!" << endl;
     cv::Mat1f result;
     cv::solve(A, b, result, cv::DECOMP_SVD);
+    cerr << "Solve completed!" << endl;
+
+    for(int i = 0; i < result.rows; i+=2){
+        float x = result[i][0];
+        float y = result[i+1][1];
+        cv::circle(img, cv::Point((int)x, (int)y), 2.5, cv::Scalar(255), -1);
+    }
+
+    
+    cv::imshow("Display Image", img);
+    cv::waitKey(0);
 }
 
 
@@ -220,6 +259,99 @@ void GetLines(cv::Mat3b const& img, std::vector<cv::Vec4i>& out){
 
 
 
+void GeneratingQuad(cv::Vec4i const& Quad, std::vector<cv::Point> const& vertexMap, LineSeg Edges, cv::Mat1f& out)
+{
+    int intersect_ct = 0;
+    //Ray will only intersect two points or one point or even no point
+    cv::Mat1f Z = cv::Mat1f::zeros(4, 8);
+    //horizontal
+    LineSeg edgeAB(vertexMap[Quad[0]], vertexMap[Quad[1]]);
+    LineSeg edgeCD(vertexMap[Quad[2]], vertexMap[Quad[3]]);
+
+    if( Edges.isIntersectionLine(edgeAB))
+    {
+        cv::Point p = Edges.IntersectionPointWith(edgeAB);
+        float inv_AB = 1/(vertexMap[Quad[0]].x - vertexMap[Quad[1]].x);
+        assert(inv_AB!=0);
+        Z[0 + intersect_ct*2][0] = (vertexMap[Quad[1]].x - p.x) * inv_AB;
+        Z[0 + intersect_ct*2][1] = (p.x - vertexMap[Quad[0]].x) * inv_AB;
+
+        inv_AB = 1/(vertexMap[Quad[0]].y - vertexMap[Quad[1]].y);
+        Z[1 + intersect_ct*2][0] = (vertexMap[Quad[1]].y - p.y) * inv_AB;
+        Z[1 + intersect_ct*2][1] = (p.y - vertexMap[Quad[0]].y) * inv_AB; 
+        intersect_ct++;    
+    }
+
+    if ( Edges.isIntersectionLine(edgeCD) )
+    {
+        cv::Point p = Edges.IntersectionPointWith(edgeCD);
+        float inv_CD = 1/(vertexMap[Quad[2]].x - vertexMap[Quad[3]].x);
+        assert(inv_CD!=0);
+        Z[0 + intersect_ct*2][2] = (vertexMap[Quad[3]].x - p.x) * inv_CD;
+        Z[0 + intersect_ct*2][3] = (p.x - vertexMap[Quad[2]].x) * inv_CD;
+        inv_CD = 1/(vertexMap[Quad[2]].y - vertexMap[Quad[3]].y);
+        Z[1 + intersect_ct*2][2] = (vertexMap[Quad[3]].y - p.y) * inv_CD;
+        Z[1 + intersect_ct*2][3] = (p.y - vertexMap[Quad[2]].y) * inv_CD;
+        intersect_ct++;    
+    }
+    //vertical
+    LineSeg edgeAC(vertexMap[Quad[0]], vertexMap[Quad[2]]);
+    LineSeg edgeBD(vertexMap[Quad[1]], vertexMap[Quad[3]]);
+    if ( Edges.isIntersectionLine(edgeBD) )
+    {
+        cv::Point p = Edges.IntersectionPointWith(edgeBD);
+        float inv_BD = 1/(vertexMap[Quad[0]].x - vertexMap[Quad[2]].x);
+        assert(inv_BD!=0);
+        Z[0 + intersect_ct*2][3] = (vertexMap[Quad[1]].x - p.x) * inv_BD;
+        Z[0 + intersect_ct*2][1] = (p.x - vertexMap[Quad[3]].x) * inv_BD;
+
+        inv_BD = 1/(vertexMap[Quad[0]].y - vertexMap[Quad[2]].y);
+        Z[1 + intersect_ct*2][3] = (vertexMap[Quad[1]].y - p.y) * inv_BD;
+        Z[1 + intersect_ct*2][1] = (p.y - vertexMap[Quad[3]].y) * inv_BD;
+        intersect_ct++;    
+    }
+
+    if ( Edges.isIntersectionLine(edgeAC) )
+    {
+        cv::Point p = Edges.IntersectionPointWith(edgeAC);
+        float inv_AC = 1/vertexMap[Quad[1]].x - vertexMap[Quad[3]].x;
+        assert(inv_AC!=0);
+        Z[0 + intersect_ct*2][2] = (vertexMap[Quad[0]].x - p.x) * inv_AC;
+        Z[0 + intersect_ct*2][0] = (p.x - vertexMap[Quad[2]].x) * inv_AC;
+
+        inv_AC = 1/vertexMap[Quad[1]].y - vertexMap[Quad[3]].y;
+        Z[1 + intersect_ct*2][2] = (vertexMap[Quad[0]].y - p.y) * inv_AC;
+        Z[1 + intersect_ct*2][0] = (p.y - vertexMap[Quad[2]].y) * inv_AC;
+        intersect_ct++;    
+    }
+    
+    assert(intersect_ct>=0); 
+    assert(intersect_ct<=2);
+    if(intersect_ct>=2)
+    {
+        cv::Mat1f pre = cv::Mat1f::zeros(2, 4);
+        pre[0][0] = 1;
+        pre[0][2] = -1;
+        pre[1][1] = 1;
+        pre[1][3] = -1;
+        //(2,4)*(4, 8)=(2,8)
+        out = pre * Z;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -236,7 +368,7 @@ void UnwarpGrid(
     cv::Mat2i const& displacement, 
     std::vector<cv::Point>& vertex_map, 
     std::vector<cv::Vec4i>& quads,
-    std::vector<int> bound_types,
+    std::vector<int>& bound_types,
     int rowdiv)
 {
 	int r = displacement.rows, c = displacement.cols;
@@ -763,76 +895,4 @@ void cropOuter(cv::Mat3b& img){
 		}
 	}
 	img = img(cv::Rect(left, up, right - left + 1, down - up + 1));
-}
-
-
-void GeneratingQuad(cv::Vec4i& Quad, std::vector<cv::Point>& vertexMap, LineSeg Edges)
-{
-    int intersect_ct = 0;
-    //Ray will only intersect two points or one point
-    cv::Mat1f Z = cv::Mat1f::zeros(4, 8);
-    //horizontal
-    LineSeg edgeAB(vertexMap[Quad[0]], vertexMap[Quad[1]]);
-    LineSeg edgeCD(vertexMap[Quad[2]], vertexMap[Quad[3]]);
-
-    if( Edges.isIntersectionLine(edgeAB))
-    {
-        cv::Point p = Edges.IntersectionPointWith(edgeAB);
-        float inv_AB = 1/(vertexMap[Quad[0]].x - vertexMap[Quad[1]].x);
-        assert(inv_AB!=0);
-        Z[0 + intersect_ct*2][0] = (vertexMap[Quad[1]].x - p.x) * inv_AB;
-        Z[0 + intersect_ct*2][1] = (p.x - vertexMap[Quad[0]].x) * inv_AB;
-
-		inv_AB = 1/(vertexMap[Quad[0]].y - vertexMap[Quad[1]].y);
-        Z[1 + intersect_ct*2][0] = (vertexMap[Quad[1]].y - p.y) * inv_AB;
-        Z[1 + intersect_ct*2][1] = (p.y - vertexMap[Quad[0]].y) * inv_AB; 
-        intersect_ct++;    
-    }
-
-    if ( Edges.isIntersectionLine(edgeCD) )
-    {
-        cv::Point p = Edges.IntersectionPointWith(edgeCD);
-        float inv_CD = 1/(vertexMap[Quad[2]].x - vertexMap[Quad[3]].x);
-        assert(inv_CD!=0);
-        Z[0 + intersect_ct*2][2] = (vertexMap[Quad[3]].x - p.x) * inv_CD;
-        Z[0 + intersect_ct*2][3] = (p.x - vertexMap[Quad[2]].x) * inv_CD;
-		inv_CD = 1/(vertexMap[Quad[2]].y - vertexMap[Quad[3]].y);
-        Z[1 + intersect_ct*2][2] = (vertexMap[Quad[3]].y - p.y) * inv_CD;
-        Z[1 + intersect_ct*2][3] = (p.y - vertexMap[Quad[2]].y) * inv_CD;
-        intersect_ct++;    
-    }
-    //vertical
-    LineSeg edgeAC(vertexMap[Quad[0]], vertexMap[Quad[2]]);
-    LineSeg edgeBD(vertexMap[Quad[1]], vertexMap[Quad[3]]);
-    if ( Edges.isIntersectionLine(edgeBD) )
-    {
-        cv::Point p = Edges.IntersectionPointWith(edgeBD);
-        float inv_BD = 1/(vertexMap[Quad[0]].x - vertexMap[Quad[2]].x);
-        assert(inv_BD!=0);
-        Z[0 + intersect_ct*2][3] = (vertexMap[Quad[1]].x - p.x) * inv_BD;
-        Z[0 + intersect_ct*2][1] = (p.x - vertexMap[Quad[3]].x) * inv_BD;
-
-		inv_BD = 1/(vertexMap[Quad[0]].y - vertexMap[Quad[2]].y);
-        Z[1 + intersect_ct*2][3] = (vertexMap[Quad[1]].y - p.y) * inv_BD;
-        Z[1 + intersect_ct*2][1] = (p.y - vertexMap[Quad[3]].y) * inv_BD;
-        intersect_ct++;    
-    }
-
-    if ( Edges.isIntersectionLine(edgeAC) )
-    {
-        cv::Point p = Edges.IntersectionPointWith(edgeAC);
-        float inv_AC = 1/vertexMap[Quad[1]].x - vertexMap[Quad[3]].x;
-        assert(inv_AC!=0);
-        Z[0 + intersect_ct*2][2] = (vertexMap[Quad[0]].x - p.x) * inv_AC;
-        Z[0 + intersect_ct*2][0] = (p.x - vertexMap[Quad[2]].x) * inv_AC;
-
-		inv_AC = 1/vertexMap[Quad[1]].y - vertexMap[Quad[3]].y;
-        Z[1 + intersect_ct*2][2] = (vertexMap[Quad[0]].y - p.y) * inv_AC;
-        Z[1 + intersect_ct*2][0] = (p.y - vertexMap[Quad[2]].y) * inv_AC;
-        intersect_ct++;    
-    }
-    
-    assert(intersect_ct>=1); 
-    assert(intersect_ct<=2);
-
 }
