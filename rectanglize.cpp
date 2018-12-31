@@ -3,22 +3,25 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
-#include <cassert>
-#include <limits>
+// #include <cassert>
+// #include <limits>
 #include <queue>
 #include <algorithm>
 #include <cmath>
 
 #include <string>
 
-constexpr double inf = std::numeric_limits<double>::infinity();
+constexpr double inf = 100000000;//std::numeric_limits<double>::infinity();
+constexpr double DARKTHRES = 2.5;
 const cv::Vec3b DARKPIX = cv::Vec3b({0,0,0});
 
 using namespace std;
 
 void cropOuter(cv::Mat3b& img);
-void localWarping(cv::Mat3b const& img, cv::Mat2i& displacement);
+void localWarping(cv::Mat3b const& img, cv::Mat1b& border, cv::Mat2i& displacement);
 void UnwarpGrid(cv::Mat2i const& displacement, std::vector<cv::Point>& out, int rowdiv);
+void GetLines(cv::Mat3b const& img, std::vector<cv::Vec4i>& out);
+
 int main(int argc, char** argv )
 {
 	cv::Mat3b image;
@@ -33,22 +36,55 @@ int main(int argc, char** argv )
 	cropOuter(image);
 
 	cv::Mat2i displace = cv::Mat2i::zeros(image.size());
-
-	localWarping(image, displace);
-
+    cv::Mat1b border;
+	localWarping(image, border, displace);
 	std::vector<cv::Point> Mesh;
 	UnwarpGrid(displace, Mesh, 20);
 
-	for(auto& p : Mesh){
-		cv::circle(image, p, 2.5, cv::Scalar(255), -1);
-	}
-	cout << Mesh.size() << endl;
-	// cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
-	// cv::imshow("Display Image", image);
-	// cv::waitKey(0);
+    std::vector<cv::Vec4i> lines;
+    GetLines(image, lines);
+
+    for(auto& p : Mesh){
+        cv::circle(image, p, 2.5, cv::Scalar(255), -1);
+    }
+    for( auto& l : lines )
+    {
+        if(border(cv::Point(l[0], l[1]))==0 || border(cv::Point(l[2], l[3]))==0)
+            cv::line( image, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(0,0,255), 2, 8 );
+    }
+
+	cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
+	cv::imshow("Display Image", image);
+	cv::waitKey(0);
 
 	return 0;
 }
+
+void GetLines(cv::Mat3b const& img, std::vector<cv::Vec4i>& out){
+    cv::Mat response;
+    const double CannyThres[] = {50, 200};
+    const int CannyAperture = 3;
+    const bool CannyL2Grad = true;
+    cv::Canny( img, response, CannyThres[0], CannyThres[1], CannyAperture, CannyL2Grad );
+
+    const double HoughDistRes = 1;
+    const double HoughAngRes = CV_PI/180;
+    const double HoughMinLen = 20;//30
+    const double HoughMaxGap = 5;//10
+    const int HoughThres = 70;//80
+    cv::HoughLinesP( response, out, HoughDistRes, HoughAngRes, HoughThres, HoughMinLen, HoughMaxGap );
+}
+
+
+
+
+
+
+
+
+
+
+////////////////////// Local Warping
 
 void inc(int& v, int i, int cap){
 	v = cap-v<i/2? cap+1 : std::min(v+i, cap);
@@ -304,6 +340,10 @@ void FindBorder(cv::Mat1b const& img, cv::Mat1b& out){
 	// connected graph
 	// find first dead pixel
 	cv::Mat1b visit = cv::Mat1b::zeros(img.size());
+    cv::Mat1b minpool;
+    auto element = cv::getStructuringElement( cv::MORPH_RECT, cv::Size(3, 3) );
+    cv::erode( img, minpool, element );
+
 	for(int y = 0; y < r; y++){
 		test.push(cv::Point(0, y));
 		test.push(cv::Point(c-1, y));
@@ -322,7 +362,7 @@ void FindBorder(cv::Mat1b const& img, cv::Mat1b& out){
 	while(!test.empty()){
 		cv::Point pix = test.front();
 
-		if(img(pix) == 0){
+		if(minpool(pix) < DARKTHRES){
 			out(pix) = 255;
 
 			cv::Point neighbor = pix + offsets[visit(pix)-1];
@@ -336,19 +376,18 @@ void FindBorder(cv::Mat1b const& img, cv::Mat1b& out){
 	}
 
 	int dilation_size = 5;
-	auto element = cv::getStructuringElement( cv::MORPH_RECT, cv::Size(dilation_size, dilation_size) );
+	element = cv::getStructuringElement( cv::MORPH_RECT, cv::Size(dilation_size, dilation_size) );
 	cv::Mat tmp;
 	cv::dilate( out, tmp, element );
 	cv::GaussianBlur(tmp, out, cv::Size(11, 11), 0, 0, cv::BORDER_DEFAULT);
 	cv::threshold(out, out, 0, 255, cv::THRESH_BINARY);
 }
-void localWarping(cv::Mat3b const& image, cv::Mat2i& displacement){
+void localWarping(cv::Mat3b const& image, cv::Mat1b& border, cv::Mat2i& displacement){
 	int r = image.rows;
 	int c = image.cols;
 	int tp;
 
 	cv::Mat1b img;
-	cv::Mat1b border;
 	cv::Mat1b border_tmp;
 	cv::Mat1b seamed;
 	cv::Mat1b tmp;
@@ -370,11 +409,12 @@ void localWarping(cv::Mat3b const& image, cv::Mat2i& displacement){
 	std::vector<char> tpseq;
 
 	std::vector<int> work;
+    // cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
 	while((tp = subImage(border_tmp, sub)) != -1){
 		subseq.push_back(sub);
 		tpseq.push_back(tp);
 
-		work.push_back(sub.width*(!(tp/2))+sub.width*(tp/2));
+		work.push_back(sub.width*(!(tp/2))+sub.height*(tp/2));
 		if(work.size()>1)
 			work.back() += work[work.size()-2];
 
@@ -402,11 +442,17 @@ void localWarping(cv::Mat3b const& image, cv::Mat2i& displacement){
 			// cerr << "Right" << endl;
 			break;
 		}
+        // cerr << border_tmp.rows << " " << border_tmp.cols << endl; 
 		while(cv::countNonZero(border_tmp(window))>0){
+            // cerr << window.x << " " << window.y << " " << window.width << " " << window.height << endl;
 			cv::Rect src(window.x+move.x, window.y+move.y, window.width, window.height);
+            if(src.x < 0 || src.y < 0 || src.x >= c || src.y >= r)
+                break;
 			border_tmp(src).copyTo(border_tmp(window));
 			window = src;
-		}
+		}        
+        // cv::imshow("Display Image", border_tmp);
+        // cv::waitKey(0);
 	}
 
 	cerr << "Begin" << endl;
@@ -485,6 +531,8 @@ void localWarping(cv::Mat3b const& image, cv::Mat2i& displacement){
 	}
 	
 	cv::imwrite("results/out.png", img);
+        cv::imshow("Display Image", img);
+        cv::waitKey(0);
 	cv::imwrite("results/seams.png", seamed);
 	cv::imwrite("results/border.png", border);
 
@@ -504,10 +552,18 @@ void localWarping(cv::Mat3b const& image, cv::Mat2i& displacement){
 void cropOuter(cv::Mat3b& img){
 	int r = img.rows, c = img.cols;
 	int up = 0, down = r - 1, left = 0, right = c - 1;
+
+    cv::Mat1b grey;
+    cv::cvtColor(img, grey, cv::COLOR_BGR2GRAY);
+    cv::Mat minpool;
+    auto element = cv::getStructuringElement( cv::MORPH_RECT, cv::Size(3, 3) );
+    cv::erode( grey, minpool, element );
+    grey = minpool;
+
 	bool f = false;
 	for(int i = 0; !f && i < r; i++){
 		for(int j = 0; !f && j < c; j++){
-			if(img[i][j]!=DARKPIX){
+			if(grey[i][j] > DARKTHRES){
 				up = i;
 				f = true;
 			}
@@ -516,7 +572,7 @@ void cropOuter(cv::Mat3b& img){
 	f = false;
 	for(int i = r-1; !f && i >= 0; i--){
 		for(int j = 0; !f && j < c; j++){
-			if(img[i][j]!=DARKPIX){
+			if(grey[i][j] > DARKTHRES){
 				down = i;
 				f = true;
 			}
@@ -525,7 +581,7 @@ void cropOuter(cv::Mat3b& img){
 	f = false;
 	for(int j = 0; !f && j < c; j++){
 		for(int i = up; !f && i <= down; i++){
-			if(img[i][j]!=DARKPIX){
+			if(grey[i][j] > DARKTHRES){
 				left = j;
 				f = true;
 			}
@@ -534,7 +590,7 @@ void cropOuter(cv::Mat3b& img){
 	f = false;
 	for(int j = c-1; !f && j >= 0; j--){
 		for(int i = up; !f && i <= down; i++){
-			if(img[i][j]!=DARKPIX){
+			if(grey[i][j] > DARKTHRES){
 				right = j;
 				f = true;
 			}
