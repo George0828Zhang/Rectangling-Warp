@@ -10,7 +10,9 @@
 #include <cmath>
 
 #include <string>
+#include "LineSeg.h"
 
+void GeneratingQuad(cv::Vec4i& Quad, std::vector<cv::Point>& vertexMap, LineSeg Edges);
 constexpr float inf = 100000000;//std::numeric_limits<double>::infinity();
 constexpr float DARKTHRES = 2.5;
 const cv::Vec3b DARKPIX = cv::Vec3b({0,0,0});
@@ -761,4 +763,76 @@ void cropOuter(cv::Mat3b& img){
 		}
 	}
 	img = img(cv::Rect(left, up, right - left + 1, down - up + 1));
+}
+
+
+void GeneratingQuad(cv::Vec4i& Quad, std::vector<cv::Point>& vertexMap, LineSeg Edges)
+{
+    int intersect_ct = 0;
+    //Ray will only intersect two points or one point
+    cv::Mat1f Z = cv::Mat1f::zeros(4, 8);
+    //horizontal
+    LineSeg edgeAB(vertexMap[Quad[0]], vertexMap[Quad[1]]);
+    LineSeg edgeCD(vertexMap[Quad[2]], vertexMap[Quad[3]]);
+
+    if( Edges.isIntersectionLine(edgeAB))
+    {
+        cv::Point p = Edges.IntersectionPointWith(edgeAB);
+        float inv_AB = 1/(vertexMap[Quad[0]].x - vertexMap[Quad[1]].x);
+        assert(inv_AB!=0);
+        Z[0 + intersect_ct*2][0] = (vertexMap[Quad[1]].x - p.x) * inv_AB;
+        Z[0 + intersect_ct*2][1] = (p.x - vertexMap[Quad[0]].x) * inv_AB;
+
+		inv_AB = 1/(vertexMap[Quad[0]].y - vertexMap[Quad[1]].y);
+        Z[1 + intersect_ct*2][0] = (vertexMap[Quad[1]].y - p.y) * inv_AB;
+        Z[1 + intersect_ct*2][1] = (p.y - vertexMap[Quad[0]].y) * inv_AB; 
+        intersect_ct++;    
+    }
+
+    if ( Edges.isIntersectionLine(edgeCD) )
+    {
+        cv::Point p = Edges.IntersectionPointWith(edgeCD);
+        float inv_CD = 1/(vertexMap[Quad[2]].x - vertexMap[Quad[3]].x);
+        assert(inv_CD!=0);
+        Z[0 + intersect_ct*2][2] = (vertexMap[Quad[3]].x - p.x) * inv_CD;
+        Z[0 + intersect_ct*2][3] = (p.x - vertexMap[Quad[2]].x) * inv_CD;
+		inv_CD = 1/(vertexMap[Quad[2]].y - vertexMap[Quad[3]].y);
+        Z[1 + intersect_ct*2][2] = (vertexMap[Quad[3]].y - p.y) * inv_CD;
+        Z[1 + intersect_ct*2][3] = (p.y - vertexMap[Quad[2]].y) * inv_CD;
+        intersect_ct++;    
+    }
+    //vertical
+    LineSeg edgeAC(vertexMap[Quad[0]], vertexMap[Quad[2]]);
+    LineSeg edgeBD(vertexMap[Quad[1]], vertexMap[Quad[3]]);
+    if ( Edges.isIntersectionLine(edgeBD) )
+    {
+        cv::Point p = Edges.IntersectionPointWith(edgeBD);
+        float inv_BD = 1/(vertexMap[Quad[0]].x - vertexMap[Quad[2]].x);
+        assert(inv_BD!=0);
+        Z[0 + intersect_ct*2][3] = (vertexMap[Quad[1]].x - p.x) * inv_BD;
+        Z[0 + intersect_ct*2][1] = (p.x - vertexMap[Quad[3]].x) * inv_BD;
+
+		inv_BD = 1/(vertexMap[Quad[0]].y - vertexMap[Quad[2]].y);
+        Z[1 + intersect_ct*2][3] = (vertexMap[Quad[1]].y - p.y) * inv_BD;
+        Z[1 + intersect_ct*2][1] = (p.y - vertexMap[Quad[3]].y) * inv_BD;
+        intersect_ct++;    
+    }
+
+    if ( Edges.isIntersectionLine(edgeAC) )
+    {
+        cv::Point p = Edges.IntersectionPointWith(edgeAC);
+        float inv_AC = 1/vertexMap[Quad[1]].x - vertexMap[Quad[3]].x;
+        assert(inv_AC!=0);
+        Z[0 + intersect_ct*2][2] = (vertexMap[Quad[0]].x - p.x) * inv_AC;
+        Z[0 + intersect_ct*2][0] = (p.x - vertexMap[Quad[2]].x) * inv_AC;
+
+		inv_AC = 1/vertexMap[Quad[1]].y - vertexMap[Quad[3]].y;
+        Z[1 + intersect_ct*2][2] = (vertexMap[Quad[0]].y - p.y) * inv_AC;
+        Z[1 + intersect_ct*2][0] = (p.y - vertexMap[Quad[2]].y) * inv_AC;
+        intersect_ct++;    
+    }
+    
+    assert(intersect_ct>=1); 
+    assert(intersect_ct<=2);
+
 }
