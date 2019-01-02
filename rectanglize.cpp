@@ -65,7 +65,7 @@ int main(int argc, char** argv )
 	std::vector<cv::Point> Mesh;
     std::vector<cv::Vec4i> Quad;
     std::vector<int> Boundary_types;
-	UnwarpGrid(displace, Mesh, Quad, Boundary_types, 10);
+	UnwarpGrid(displace, Mesh, Quad, Boundary_types, 20);
 
     std::vector<cv::Vec4i> lines;
     GetLines(image, lines);
@@ -727,7 +727,7 @@ void DrawMatrix(
         vertex_map_warped[i].x = res[2*i];
         vertex_map_warped[i].y = res[2*i+1];
 
-        cv::circle(img, cv::Point2i(res[2*i], res[2*i+1]), 2.5, cv::Scalar(0, 0, 255), -1);
+        // cv::circle(img, cv::Point2i(res[2*i], res[2*i+1]), 2.5, cv::Scalar(0, 0, 255), -1);
     }
     cout << "made vertexmap warped." << endl;
 
@@ -745,7 +745,8 @@ void DrawMatrix(
         cv::Point2f srcC(vertex_map[qd[2]]);
         cv::Point2f srcD(vertex_map[qd[3]]);
 
-        double Area = 0.5*(vB-vA).cross(vC-vA) + 0.5*(vB-vD).cross(vC-vD);
+        double Area = 0.5*std::abs((vB-vA).cross(vC-vA)) + 0.5*std::abs((vB-vD).cross(vC-vD));
+        // double Area = 0.5*(vB-vA).cross(vC-vA) + 0.5*(vB-vD).cross(vC-vD);
         int l = (int)std::sqrt(Area);
         for(int j = 0; j < l; j++){
             for(int k = 0; k < l; k++){
@@ -755,7 +756,8 @@ void DrawMatrix(
                 weights[1] = j*(l-k);
                 weights[2] = (l-j)*k;                
                 weights[3] = j*k;
-                weights /= cv::norm(weights);
+                // weights /= cv::norm(weights);
+                weights /= Area;
 
                 // warp to global
                 cv::Point dst(weights[0]*vA + weights[1]*vB + weights[2]*vC + weights[3]*vD);
@@ -765,7 +767,7 @@ void DrawMatrix(
                     SourcePixel(dst) = {src.x, src.y};
                     HasSource(dst) = 1;
                 }else{
-                    cout << "[debug] "<< dst.x << ", " << dst.y << endl;
+                    // cout << "[debug] "<< dst.x << ", " << dst.y << endl;
                 }
             }
         }
@@ -787,9 +789,12 @@ void DrawMatrix(
         }
     }
 
+    for(int i = 0; i < V; i++){
+        cv::circle(unwarped_img, cv::Point(vertex_map_warped[i]), 2.5, cv::Scalar(0, 0, 255), -1);
+    }
     cout << "show picture" << endl;
-    cv::imshow("Display Image", img);
-    cv::imwrite("results/global.png", img);
+    cv::imshow("Display Image", unwarped_img);
+    cv::imwrite("results/global.png", unwarped_img);
     cv::waitKey(0);
 }
 
