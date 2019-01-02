@@ -40,8 +40,16 @@ class LineSeg
 
 		LineSeg(cv::Point2f in_origin, cv::Point2f in_end)
 		{
-			origin = in_origin;
-			end = in_end;
+			if(in_origin.x > in_end.x || ((in_origin.x == in_end.x)&&(in_origin.y > in_end.y)) )
+			{
+				origin = in_end;
+				end = in_origin;
+			}
+			else{
+				origin = in_origin;
+				end = in_end;
+			}
+			
 		}
 
 		float getTan()
@@ -60,6 +68,8 @@ class LineSeg
 
 		bool is_parrallel(LineSeg line)
 		{
+			//std::cout << "line" << line.getdir().x << "this" << this->getdir().x << std::endl;
+			//std::cout << "line" << line.getdir().y << "this" << this->getdir().y << std::endl;
 			if(line.getdir().x == this->getdir().x && line.getdir().y == this->getdir().y )
 			{
 				return true;
