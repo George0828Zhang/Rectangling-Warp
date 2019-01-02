@@ -23,6 +23,7 @@ const cv::Vec3b DARKPIX = cv::Vec3b({0,0,0});
 
 using namespace std;
 
+void Generating_C_mut_vertices_to_e_Matrix(cv::Vec4i const& Quad, std::vector<cv::Point> const& vertexMap, LineSeg input_line, cv::Mat1f& out);
 void GeneratingQuad(cv::Vec4i const& Quad, std::vector<cv::Point> const& vertexMap, LineSeg Edges, cv::Mat1f& out);
 void cropOuter(cv::Mat3b& img);
 void localWarping(cv::Mat3b const& img, cv::Mat1b& border, cv::Mat2i& displacement);
@@ -96,13 +97,37 @@ int main(int argc, char** argv )
 
 void Converge(
     int Rows, int Cols,
-    std::vector<cv::Vec4i> const& Quad, 
+    std::vector<cv::Vec4i> const& Quads, 
     std::vector<int> const& Boundary_types, 
     std::vector<cv::Point> const& vertex_map, 
     std::vector<cv::Vec4i> const& seg_lines,
     cv::Mat3b& img )
 {
+	int N = Quads.size();
+    int M = seg_lines.size();    
+    int K = 0;
+	int T = 2*vertex_map.size();
+	for(int i = 0; i < M ; i++)
+	{
+		//C = R x e_hat x  e_hat_pseudo_inv x R_transpose - I
+		//  = M - I
+		//to min Ce:
+		//Ce = (M-I)e 
+		//make sure e[0] is the top left most and e[1] is right most
 
+        
+        //std::vector<cv::Vec4i> const& seg_lines
+        
+		for(int j =0 ;j < N; j++)
+		{
+			cv::Mat1f output_mat = cv::Mat1f::zeros(2,T);
+			LineSeg my_line(cv::Point2f(seg_lines[j][0],seg_lines[j][1]), cv::Point2f(seg_lines[j][2],seg_lines[j][3]));
+			Generating_C_mut_vertices_to_e_Matrix(Quads[j], vertex_map, my_line, output_mat);
+			//cout << "ok" << endl;
+			output_mat = LAMBDA_L * output_mat;
+			
+		}  
+	}
 }
 
 void general_case(LineSeg input_line, cv::Point& p ,int ct, LineSeg const& edgeAB, std::vector<cv::Point> const&  vertexMap,
@@ -274,6 +299,7 @@ void Generating_C_mut_vertices_to_e_Matrix(cv::Vec4i const& Quad, std::vector<cv
         }     
     }
     //cout << "before my assert" << endl;
+	//cout << "intersect_ct " <<  intersect_ct << endl;
     assert(intersect_ct>=0); 
     assert(intersect_ct<=2);
 	
@@ -361,6 +387,7 @@ void DrawMatrix(
 	vector<float> b_queue;
     //cv::Mat1f A = cv::Mat1f::zeros(rows, columns); 
     // Shape Preservation NxT
+	
     for(int i = 0; i < N; i++){
         cv::Vec4i qd = Quads[i];
         cv::Mat1f Aq = cv::Mat1f::zeros(8, 4);
@@ -400,21 +427,17 @@ void DrawMatrix(
 				b_queue.push_back(0);
 			}
 		}
-		/*
-		int ct = 0;
-		for(int v = 0; v < 4; v++)
-		{
-			int index = qd[v];
-			for_bigA[0][2*index] = AqAq_pI[0][ct++];
-			for_bigA[0][2*index + 1] = AqAq_pI[0][ct++];
-		}
-		*/
+		
 		
 		//for_bigA.copyTo(A(cv::Rect(0, i, T, 1)));
     }
+	cout << "N:" << N << endl;
+	cout << "8*N:" << 8*N << endl;
+	cout << A_queue.size() << endl;
 	cout << "Shape Preservation ok" << endl;
     // Line Preservation (MxNx2)xT
-    for(int i = 0; i < M ; i++)
+    
+	for(int i = 0; i < M ; i++)
 	{
 		//C = R x e_hat x  e_hat_pseudo_inv x R_transpose - I
 		//  = M - I
@@ -438,31 +461,16 @@ void DrawMatrix(
 				A_queue.push_back(output_mat.row(0));
 				b_queue.push_back(0);
 			}
-			if(countNonZero(output_mat.row(0)))
+			if(countNonZero(output_mat.row(1)))
 			{
 				A_queue.push_back(output_mat.row(1));
 				b_queue.push_back(0);
 			}
-				
-			//cout << "notok" << endl;
-			//output_mat.copyTo(A(cv::Rect(0, 8*N + i*2, T, 2)));
-			//cout <<"hmmm" << endl;
+			
 		}  
 	}
 	cout << "Line Preservation ok" << endl;
-	/*
-	for(int i =0 ; i < N; i++)
-    {
-        for(int j = 0 ;j < M ;j++)
-        {
-            cv::Mat1f vec_diff = cv::Mat1f::zeros(2,8);
-            //std::vector<cv::Vec4i> const& seg_lines
-            LineSeg my_line(cv::Point2f(seg_lines[j][0],seg_lines[j][1]), cv::Point2f(seg_lines[j][2],seg_lines[j][3]));
-            GeneratingQuad(Quads[i], vertex_map, my_line, vec_diff);
-            vec_diff.copyTo(A(cv::Rect(j*8, 8*N + i*2, 8, 2)));
-        }
-    }
-	*/
+
     // Boundary Constraint Kx8N, K < N
 
 	
@@ -488,10 +496,7 @@ void DrawMatrix(
 			if(t==0)
 			{
 				// up
-				/*
-				A[ base + v_index ][ i * 8 + v * 2 + 1 ] = inf;
-				b[ base + v_index ][0] = 0;
-				*/
+				
 				temp_mat[0][ 2 * v_index + 1] = inf;
 				if(countNonZero(temp_mat))
 				{
@@ -502,10 +507,7 @@ void DrawMatrix(
 			if(t==1)
 			{
 				// down
-				/*
-				A[ base + v_index ][ i * 8 + v * 2 + 1 ] = inf;
-				b[ base + v_index ][0] = (Rows - 1)*inf;
-				*/
+				
 				temp_mat[0][ 2 * v_index + 1] = inf;
 				if(countNonZero(temp_mat))
 				{
@@ -516,10 +518,7 @@ void DrawMatrix(
 			if(t==2)
 			{
 				// left
-				/*
-				A[ base + v_index ][ i * 8 + v * 2 ] = inf;
-				b[ base + v_index ][0] = 0;
-				*/
+				
 				temp_mat[0][ 2 * v_index ] = inf;
 				if(countNonZero(temp_mat))
 				{
@@ -531,10 +530,7 @@ void DrawMatrix(
 			if(t==3)
 			{
 				// right
-				/*
-				A[ base + v_index ][ i * 8 + v * 2 ] = inf;
-				b[ base + v_index ][0] = (Cols - 1)*inf;
-				*/
+				
 				temp_mat[0][ 2 * v_index ] = inf;
 				if(countNonZero(temp_mat))
 				{
@@ -561,12 +557,12 @@ void DrawMatrix(
 	cerr << "A rows: " << rows << endl;
 	cerr << "A cols: " << T << endl;
     cv::Mat1f result;
-	//cv::solve(A, b, result, cv::DECOMP_SVD);
+	cv::solve(A, b, result, cv::DECOMP_SVD);
 	for(int i =0 ;i< T; i++)
 	{
 		//cout << result[0][i] << endl;
 	}
-	
+	/*
 	gsl_matrix *gslA = gsl_matrix_alloc(rows,columns);
 	gsl_vector *gslb = gsl_vector_alloc(rows);
 	gsl_matrix_set_zero(gslA);
@@ -589,7 +585,7 @@ void DrawMatrix(
 	{
 		result[i][0] = gsl_vector_get(x,i);
 	}
-	
+	*/
     
     cerr << "Solve completed!" << endl;
 	/*
