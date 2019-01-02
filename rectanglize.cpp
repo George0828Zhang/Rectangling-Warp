@@ -526,7 +526,7 @@ void DrawMatrix(
 	std::cout << "Shape Preservation ok" << std::endl;
 	// Line Preservation (MxNx2)xT
 	int ct = 0;
-	for(int i = 0; i < M ; i++)
+	for(int i = 0; i < N ; i++)
 	{
 		//C = R x e_hat x  e_hat_pseudo_inv x R_transpose - I
 		//  = M - I
@@ -537,7 +537,7 @@ void DrawMatrix(
 		
 		//std::vector<cv::Vec4i> const& seg_lines
 		
-		for(int j =0 ;j < N; j++)
+		for(int j =0 ;j < M; j++)
 		{
 			cv::Mat1f output_mat = cv::Mat1f::zeros(2,T);
 			LineSeg my_line(cv::Point2f(seg_lines[j][0],seg_lines[j][1]), cv::Point2f(seg_lines[j][2],seg_lines[j][3]));
