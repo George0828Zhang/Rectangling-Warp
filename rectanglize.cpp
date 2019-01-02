@@ -8,11 +8,16 @@
 #include <queue>
 #include <algorithm>
 #include <cmath>
-
 #include <string>
 #include "LineSeg.h"
+//#include <armadillo>
+#include <gsl/gsl_matrix.h>
+#include <gsl/gsl_vector.h>
+#include <gsl/gsl_linalg.h>
+
 
 constexpr float inf = 100000000;//std::numeric_limits<double>::infinity();
+constexpr float LAMBDA_L = 100;
 constexpr float DARKTHRES = 2.5;
 const cv::Vec3b DARKPIX = cv::Vec3b({0,0,0});
 
@@ -68,7 +73,7 @@ int main(int argc, char** argv )
     // cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
     // cout << Quad.size() << endl;
     // int p;
-    // while(cin >> p){
+    //while(cin >> p){
     //     cv::circle(image, Mesh[Quad[p][0]], 2.5, cv::Scalar(255), -1);
     // cv::imshow("Display Image", image);
     // cv::waitKey(0);
@@ -81,15 +86,15 @@ int main(int argc, char** argv )
     //     cv::circle(image, Mesh[Quad[p][3]], 2.5, cv::Scalar(255), -1);
     cv::imshow("Display Image", tmp);
     cv::waitKey(0);
-    // }
+    //}
 
     DrawMatrix(image.rows, image.cols, Quad, Boundary_types, Mesh, lines, image);
-
+	//Converge(image.rows, image.cols, Quad, Boundary_types, Mesh, lines, image);
 
 	return 0;
 }
 
-void DrawMatrix(
+void Converge(
     int Rows, int Cols,
     std::vector<cv::Vec4i> const& Quad, 
     std::vector<int> const& Boundary_types, 
@@ -97,23 +102,268 @@ void DrawMatrix(
     std::vector<cv::Vec4i> const& seg_lines,
     cv::Mat3b& img )
 {
-    int N = Quad.size();
-    int M = 0;//seg_lines.size();    
+
+}
+
+void general_case(LineSeg input_line, cv::Point& p ,int ct, LineSeg const& edgeAB, std::vector<cv::Point> const&  vertexMap,
+ const int high_prior_index, const int low_prior_index, cv::Mat1f& vertices_to_e)
+{
+    cout << "general" << endl;
+	p = input_line.IntersectionPointWith(edgeAB);
+    float inv = std::abs( 1.0f/(vertexMap[high_prior_index].x - vertexMap[low_prior_index].x) );
+	if(isnan(inv) || isinf(inv))
+		return;
+    //assert(!isnan(inv_AB)&&!isinf(inv_AB));
+
+    vertices_to_e[ct][2 * high_prior_index] = std::abs(vertexMap[low_prior_index].x - p.x) * inv;
+    vertices_to_e[ct][2 * low_prior_index] = std::abs(p.x - vertexMap[high_prior_index].x) * inv;
+    inv = std::abs( 1.0f/(vertexMap[high_prior_index].y - vertexMap[low_prior_index].y) );
+	if(isnan(inv) || isinf(inv))
+		return;
+    //assert(!isnan(inv_AB)&&!isinf(inv_AB));
+    vertices_to_e[ct][2 * high_prior_index + 1] = std::abs(vertexMap[low_prior_index].y - p.y) * inv;
+    vertices_to_e[ct][2 * low_prior_index + 1] = std::abs(p.y - vertexMap[high_prior_index].y) * inv; 
+}
+
+void parrallel_case(LineSeg const& input_line, std::vector<cv::Point> const&  vertexMap, int high_prior_index, int low_prior_index, 
+cv::Mat1f& vertices_to_e, cv::Mat1f& C ,cv::Mat1f& R, cv::Mat1f& e_hat)
+{
+	cout << "parrallel" << endl;
+	cv::Mat1f R_transpose = cv::Mat1f::zeros(2, 2);
+	transpose(R, R_transpose);
+	cv::Point left,right;
+    if(input_line.origin.x < input_line.end.x)
+    {
+        left = input_line.origin;
+        right = input_line.end;
+    }
+    else
+    {
+        right = input_line.origin;
+        left = input_line.end;
+    }
+    e_hat[0][0] = left.x;
+    e_hat[1][0] = left.y;
+    e_hat[0][1] = right.x;
+    e_hat[1][1] = right.y;
+
+    C = R * e_hat * e_hat.inv(cv::DECOMP_SVD) * R_transpose - cv::Mat1f::eye(2, 2);
+    float inv = std::abs( 1.0f/(vertexMap[low_prior_index].x - vertexMap[high_prior_index].x) );
+	if(isnan(inv) || isinf(inv))
+		return;
+    //assert(!isnan(inv) && !isinf(inv));
+    vertices_to_e[0][2 * high_prior_index] = std::abs(vertexMap[low_prior_index].x - left.x)*inv;
+    vertices_to_e[0][2 * low_prior_index] = std::abs(vertexMap[high_prior_index].x - left.x)*inv;   
+    vertices_to_e[1][2 * high_prior_index] = std::abs(vertexMap[low_prior_index].x - right.x)*inv;
+    vertices_to_e[1][2 * low_prior_index] = std::abs(vertexMap[high_prior_index].x - right.x)*inv;
+
+    inv = std::abs( 1.0f/(vertexMap[low_prior_index].y - vertexMap[high_prior_index].y) );
+	if(isnan(inv) || isinf(inv))
+		return;
+    //assert(!isnan(inv) && !isinf(inv));
+    vertices_to_e[0][2 * high_prior_index + 1] = std::abs(vertexMap[low_prior_index].y - left.y)*inv;
+    vertices_to_e[0][2 * low_prior_index + 1] = std::abs(vertexMap[high_prior_index].y - left.y)*inv;
+    vertices_to_e[0][2 * high_prior_index + 1] = std::abs(vertexMap[low_prior_index].y - left.y)*inv;
+    vertices_to_e[0][2 * low_prior_index + 1] = std::abs(vertexMap[high_prior_index].y - left.y)*inv;
+}
+
+
+void Generating_C_mut_vertices_to_e_Matrix(cv::Vec4i const& Quad, std::vector<cv::Point> const& vertexMap, LineSeg input_line, cv::Mat1f& out)
+{
+    int intersect_ct = 0;
+    int vertices_nm  = vertexMap.size();
+    //Ray will only intersect two points or one point or even no point
+    float theta = atan(input_line.getTan());
+    float rotate_angle = find_closest_in_bin(theta, 50);
+    cv::Mat1f R = cv::Mat1f::zeros(2, 2);
+	cv::Mat1f R_transpose = cv::Mat1f::zeros(2, 2);
+	transpose(R, R_transpose);
+    R[0][0] = cos(rotate_angle);
+    R[0][1] = -sin(rotate_angle);
+    R[1][0] = sin(rotate_angle);
+    R[1][1] = sin(rotate_angle);
+
+
+    cv::Mat1f e_hat = cv::Mat1f::zeros(2, 2);
+    cv::Mat1f C = cv::Mat1f::zeros(2, 2);
+    cv::Mat1f vertices_to_e = cv::Mat1f::zeros(2, 2 * vertices_nm);
+
+    cv::Point intersect_points[2];
+    //make sure when doing interpolation the index with higher is v[1], the lower one is v[0] for e and e_hat
+    //horizontal
+    LineSeg edgeAB(vertexMap[Quad[0]], vertexMap[Quad[1]]);
+    LineSeg edgeCD(vertexMap[Quad[2]], vertexMap[Quad[3]]);
+	//cout << "before edgeAB" << endl;
+    if( input_line.isIntersectionLine(edgeAB))
+    {
+        int high_prior_index,low_prior_index;
+        high_prior_index = Quad[0];
+        low_prior_index = Quad[1];
+        if( input_line.is_parrallel(edgeAB))
+        {    
+			     
+            parrallel_case(input_line, vertexMap, high_prior_index, low_prior_index, vertices_to_e, C, R, e_hat);
+            out = C*vertices_to_e;
+            return;
+        }
+        else
+        {
+			
+            general_case(input_line, intersect_points[intersect_ct], intersect_ct, edgeAB, vertexMap, high_prior_index, low_prior_index, vertices_to_e);
+            intersect_ct++;
+        }
+
+    }
+	//cout << "edgeAB finish detect" << endl;
+    if ( input_line.isIntersectionLine(edgeCD) )
+    {
+        //cout << "in CD" << endl;
+		int high_prior_index,low_prior_index;
+        high_prior_index = Quad[2];
+        low_prior_index = Quad[3];
+        if( input_line.is_parrallel(edgeAB))
+        {         
+            parrallel_case(input_line, vertexMap, high_prior_index, low_prior_index, vertices_to_e, C, R, e_hat);
+            out = C*vertices_to_e;
+            return;
+        }
+        else
+        {
+            general_case(input_line, intersect_points[intersect_ct], intersect_ct, edgeCD, vertexMap, high_prior_index, low_prior_index, vertices_to_e);
+            intersect_ct++;
+        }   
+    }
+    //vertical
+    LineSeg edgeAC(vertexMap[Quad[0]], vertexMap[Quad[2]]);
+    LineSeg edgeBD(vertexMap[Quad[1]], vertexMap[Quad[3]]);
+    if ( input_line.isIntersectionLine(edgeBD) )
+    {
+        //cout << "in BD" << endl;
+		int high_prior_index,low_prior_index;
+        high_prior_index = Quad[0];
+        low_prior_index = Quad[2];
+        if( input_line.is_parrallel(edgeAB))
+        {         
+            parrallel_case(input_line, vertexMap, high_prior_index, low_prior_index, vertices_to_e, C, R, e_hat);
+            out = C*vertices_to_e;
+            return;
+        }
+        else
+        {
+            general_case(input_line, intersect_points[intersect_ct], intersect_ct,edgeAC, vertexMap, high_prior_index, low_prior_index, vertices_to_e);
+            intersect_ct++;
+        }     
+    }
+
+    if ( input_line.isIntersectionLine(edgeAC) )
+    {
+		//cout << "in AC" << endl;
+        int high_prior_index,low_prior_index;
+        high_prior_index = Quad[1];
+        low_prior_index = Quad[3];
+        if( input_line.is_parrallel(edgeAB))
+        {         
+            parrallel_case(input_line, vertexMap, high_prior_index, low_prior_index, vertices_to_e, C, R, e_hat);
+            out = C*vertices_to_e;
+            return;
+        }
+        else
+        {
+            general_case(input_line, intersect_points[intersect_ct], intersect_ct, edgeBD, vertexMap, high_prior_index, low_prior_index, vertices_to_e);
+            intersect_ct++;
+        }     
+    }
+    //cout << "before my assert" << endl;
+    assert(intersect_ct>=0); 
+    assert(intersect_ct<=2);
+	
+    if(intersect_ct == 2)
+    {
+        cout << "intersect_ct == 2" << endl;
+		if(intersect_points[0].x > intersect_points[1].x || 
+		((intersect_points[0].x==intersect_points[1].x)&&(intersect_points[0].y < intersect_points[1].y)) )
+        {
+            cv::Mat1f temp = cv::Mat1f::zeros(1, vertices_nm);
+			cout << "hello" << endl;
+            for(int i = 0; i < vertices_nm; i++)
+            {
+                temp[0][i] = vertices_to_e[0][i];
+            }
+			cout << "fell" << endl;
+            for(int i = 0; i < vertices_nm; i++)
+            {
+                vertices_to_e[0][i] = vertices_to_e[1][i];
+                vertices_to_e[1][i] = temp[0][i];
+            }
+			cout << "bad" << endl;
+			e_hat[0][0] = intersect_points[1].x;
+			e_hat[1][0] = intersect_points[1].y;
+			e_hat[0][1] = intersect_points[0].x;
+			e_hat[1][1] = intersect_points[0].y;
+
+        }
+		else{
+			e_hat[0][0] = intersect_points[0].x;
+			e_hat[1][0] = intersect_points[0].y;
+			e_hat[0][1] = intersect_points[1].x;
+			e_hat[1][1] = intersect_points[1].y;
+		}
+		cout << "before C" << endl;
+		C = R * e_hat * e_hat.inv(cv::DECOMP_SVD) * R_transpose - cv::Mat1f::eye(2, 2);
+        out = C*vertices_to_e;
+		cout << "out is filled" << endl;
+    }
+    else if(intersect_ct == 1)
+    {
+		return;
+        /*
+		cout << "intersect_ct == 1" << endl;
+		for(int i =0 ;i< vertices_nm; i++)
+        {
+			if(vertices_to_e[1][i]!=0.0)
+		   		vertices_to_e[0][i] = vertices_to_e[1][i];
+			else if(vertices_to_e[0][i]!=0.0)
+            	vertices_to_e[1][i] = vertices_to_e[0][i];
+        }
+		cout << "intersect_ct == 1 follow" << endl;
+		e_hat[0][0] = intersect_points[0].x;
+		e_hat[1][0] = intersect_points[0].y;
+		e_hat[0][1] = intersect_points[0].x;
+		e_hat[1][1] = intersect_points[0].y;
+		//e_hat can't be inverse
+		C = R * e_hat * e_hat.inv(cv::DECOMP_SVD) * R_transpose - cv::Mat1f::eye(2, 2);
+        out = C*vertices_to_e;
+		*/
+    }
+	//cout << "nothing" << endl;
+}
+
+void DrawMatrix(
+    int Rows, int Cols,
+    std::vector<cv::Vec4i> const& Quads, 
+    std::vector<int> const& Boundary_types, 
+    std::vector<cv::Point> const& vertex_map, 
+    std::vector<cv::Vec4i> const& seg_lines,
+    cv::Mat3b& img )
+{
+    int N = Quads.size();
+    int M = seg_lines.size();    
     int K = 0;
+	int T = 2*vertex_map.size();
     for(auto& type : Boundary_types){
         if(type >= 0 && type <= 3) K++;
     }// count number of vertices that is on boundary
-    int rows = 8*N + 2*M + K + 1;
-    int columns = 8*N;
+    //int rows = 8*N + 2*M + K + 1;
+	//int rows = 8*N + 2*N*M + K ;
+    int columns = T;
 
-
-    cv::Mat1f A = cv::Mat1f::zeros(rows, columns); 
-    cv::Mat1f b = cv::Mat1f::zeros(rows, 1);
-
-    // Shape Preservation 8Nx8N
+	vector<cv::Mat1f> A_queue;
+	vector<float> b_queue;
+    //cv::Mat1f A = cv::Mat1f::zeros(rows, columns); 
+    // Shape Preservation NxT
     for(int i = 0; i < N; i++){
-        cv::Vec4i qd = Quad[i];
-        cv::Mat1f Aq(8, 4);
+        cv::Vec4i qd = Quads[i];
+        cv::Mat1f Aq = cv::Mat1f::zeros(8, 4);
 
         for(int v = 0; v < 4; v++){
             int index = qd[v];
@@ -132,26 +382,92 @@ void DrawMatrix(
         }
 
 
-        cv::Mat AA_pI = Aq*Aq.inv(cv::DECOMP_SVD) - cv::Mat1f::eye(8, 8);
-
-        AA_pI.copyTo(A(cv::Rect(i*8, i*8, 8, 8)));
+        cv::Mat1f AqAq_pI = Aq*Aq.inv(cv::DECOMP_SVD) - cv::Mat1f::eye(8, 8);
+		
+		for(int j = 0; j < 8 ;j ++)
+		{
+			cv::Mat1f forbigA = cv::Mat1f::zeros(1, T);
+			int ct = 0;
+			for(int v = 0; v < 4; v++)
+			{
+				int index = qd[v];
+				forbigA[0][2*index] = AqAq_pI[j][ct++];
+				forbigA[0][2*index+1] = AqAq_pI[j][ct++];
+			}
+			if(countNonZero(forbigA)>0)
+			{
+				A_queue.push_back(forbigA);
+				b_queue.push_back(0);
+			}
+		}
+		/*
+		int ct = 0;
+		for(int v = 0; v < 4; v++)
+		{
+			int index = qd[v];
+			for_bigA[0][2*index] = AqAq_pI[0][ct++];
+			for_bigA[0][2*index + 1] = AqAq_pI[0][ct++];
+		}
+		*/
+		
+		//for_bigA.copyTo(A(cv::Rect(0, i, T, 1)));
     }
-    // Line Preservation Mx8N
-    for(int i =0 ; i < N; i++)
+	cout << "Shape Preservation ok" << endl;
+    // Line Preservation (MxNx2)xT
+    for(int i = 0; i < M ; i++)
+	{
+		//C = R x e_hat x  e_hat_pseudo_inv x R_transpose - I
+		//  = M - I
+		//to min Ce:
+		//Ce = (M-I)e 
+		//make sure e[0] is the top left most and e[1] is right most
+
+        
+        //std::vector<cv::Vec4i> const& seg_lines
+        
+		for(int j =0 ;j < N; j++)
+		{
+			cv::Mat1f output_mat = cv::Mat1f::zeros(2,T);
+			LineSeg my_line(cv::Point2f(seg_lines[j][0],seg_lines[j][1]), cv::Point2f(seg_lines[j][2],seg_lines[j][3]));
+			Generating_C_mut_vertices_to_e_Matrix(Quads[j], vertex_map, my_line, output_mat);
+			//cout << "ok" << endl;
+			output_mat = LAMBDA_L * output_mat;
+			
+			if(countNonZero(output_mat.row(0)))
+			{
+				A_queue.push_back(output_mat.row(0));
+				b_queue.push_back(0);
+			}
+			if(countNonZero(output_mat.row(0)))
+			{
+				A_queue.push_back(output_mat.row(1));
+				b_queue.push_back(0);
+			}
+				
+			//cout << "notok" << endl;
+			//output_mat.copyTo(A(cv::Rect(0, 8*N + i*2, T, 2)));
+			//cout <<"hmmm" << endl;
+		}  
+	}
+	cout << "Line Preservation ok" << endl;
+	/*
+	for(int i =0 ; i < N; i++)
     {
         for(int j = 0 ;j < M ;j++)
         {
             cv::Mat1f vec_diff = cv::Mat1f::zeros(2,8);
             //std::vector<cv::Vec4i> const& seg_lines
             LineSeg my_line(cv::Point2f(seg_lines[j][0],seg_lines[j][1]), cv::Point2f(seg_lines[j][2],seg_lines[j][3]));
-            GeneratingQuad(Quad[i], vertex_map, my_line, vec_diff);
-            vec_diff.copyTo(A(cv::Rect(j*8, i*2, 8, 2)));
+            GeneratingQuad(Quads[i], vertex_map, my_line, vec_diff);
+            vec_diff.copyTo(A(cv::Rect(j*8, 8*N + i*2, 8, 2)));
         }
     }
-
+	*/
     // Boundary Constraint Kx8N, K < N
-    for(int i = 0, base = 8*M + 2*N; i < N; i++){
-        cv::Vec4i qd = Quad[i];
+
+	
+    for(int i = 0 ; i < N; i++){
+        cv::Vec4i qd = Quads[i];
 
         for(int v = 0; v < 4; v++){
             int v_index = qd[v];
@@ -167,64 +483,133 @@ void DrawMatrix(
             int y = vertex_map[v_index].y;
             
             int t = Boundary_types[v_index];
+			cv::Mat1f temp_mat = cv::Mat1f::zeros(1,T);
+		
+			if(t==0)
+			{
+				// up
+				/*
+				A[ base + v_index ][ i * 8 + v * 2 + 1 ] = inf;
+				b[ base + v_index ][0] = 0;
+				*/
+				temp_mat[0][ 2 * v_index + 1] = inf;
+				if(countNonZero(temp_mat))
+				{
+					A_queue.push_back(temp_mat);
+					b_queue.push_back(0);
+				}	
+			}
+			if(t==1)
+			{
+				// down
+				/*
+				A[ base + v_index ][ i * 8 + v * 2 + 1 ] = inf;
+				b[ base + v_index ][0] = (Rows - 1)*inf;
+				*/
+				temp_mat[0][ 2 * v_index + 1] = inf;
+				if(countNonZero(temp_mat))
+				{
+					A_queue.push_back(temp_mat);
+					b_queue.push_back((Rows - 1)*inf);
+				}
+			}
+			if(t==2)
+			{
+				// left
+				/*
+				A[ base + v_index ][ i * 8 + v * 2 ] = inf;
+				b[ base + v_index ][0] = 0;
+				*/
+				temp_mat[0][ 2 * v_index ] = inf;
+				if(countNonZero(temp_mat))
+				{
+					A_queue.push_back(temp_mat);
+					b_queue.push_back(0);
+				}
 
-            switch(t){
-                case 0:// up
-                A[ base + v_index ][ i * 8 + v * 2 + 1 ] = inf;
-                b[ base + v_index ][0] = 0;
-                break;
-                case 1:// down
-                A[ base + v_index ][ i * 8 + v * 2 + 1 ] = inf;
-                b[ base + v_index ][0] = (Rows - 1)*inf;
-                break;
-                case 2:// left
-                A[ base + v_index ][ i * 8 + v * 2 ] = inf;
-                b[ base + v_index ][0] = 0;
-                break;
-                case 3:// right
-                A[ base + v_index ][ i * 8 + v * 2 ] = inf;
-                b[ base + v_index ][0] = (Cols - 1)*inf;
-                break;
-                default:// not boundary quad
-                break;
-            }
+			}
+			if(t==3)
+			{
+				// right
+				/*
+				A[ base + v_index ][ i * 8 + v * 2 ] = inf;
+				b[ base + v_index ][0] = (Cols - 1)*inf;
+				*/
+				temp_mat[0][ 2 * v_index ] = inf;
+				if(countNonZero(temp_mat))
+				{
+					A_queue.push_back(temp_mat);
+					b_queue.push_back((Cols - 1)*inf);
+				}
+			}
+			
+			
+		
+			
         }
     }
-
-    // Equivalence Constraint
-    int pairs[6][2] = {{0, 3}, {1, 2}, {3, 2}, {1, 0}, {1, 3}, {0, 2}};
-    for(int i = 0, base = 8*M + 2*N + K; i < N; i++){
-        cv::Vec4i qd = Quad[i];
-        for(int j = i+1; j < N; j++){
-            cv::Vec4i qsrch = Quad[j];
-            for(int term = 0; term < 6; term++){
-                int idir = pairs[term][0];
-                int jdir = pairs[term][1];
-                int i_index = qd[idir];
-                int j_index = qsrch[jdir];
-
-                if(j_index == i_index){
-                    A[ base + (term/2) ][ 8 * i + idir ] = inf;
-                    A[ base + (term/2) ][ 8 * j + jdir ] = -inf;
-                    b[ base + (term/2) ][0] = 0;
-                }
-            }
-        }
-    }
-
+	
+	int rows = A_queue.size();
+    cv::Mat1f A = cv::Mat1f::zeros(rows, T); 
+	cv::Mat1f b = cv::Mat1f::zeros(rows,1);
+	for(int i = 0 ; i < rows ; i++)
+	{
+		A_queue[i].copyTo(A(cv::Rect(0,  i, T, 1)));
+		b[i][0] = b_queue[i];
+	}
     cerr << "ready for solve!" << endl;
+	cerr << "A rows: " << rows << endl;
+	cerr << "A cols: " << T << endl;
     cv::Mat1f result;
-    cv::solve(A, b, result, cv::DECOMP_SVD);
+	//cv::solve(A, b, result, cv::DECOMP_SVD);
+	for(int i =0 ;i< T; i++)
+	{
+		//cout << result[0][i] << endl;
+	}
+	
+	gsl_matrix *gslA = gsl_matrix_alloc(rows,columns);
+	gsl_vector *gslb = gsl_vector_alloc(rows);
+	gsl_matrix_set_zero(gslA);
+	gsl_vector_set_zero(gslb);
+	for(int i=0;i<rows;i++){
+		for(int j=0;j<columns;j++){
+			gsl_matrix_set(gslA,i,j,A[i][j]);
+			
+		}
+		gsl_vector_set(gslb,i,b[i][0]);
+	}
+
+	gsl_matrix *V = gsl_matrix_alloc(columns,columns);
+	gsl_vector *S = gsl_vector_alloc(columns);
+	gsl_vector *work = gsl_vector_alloc(columns);
+	gsl_vector *x = gsl_vector_alloc(columns);
+	gsl_linalg_SV_decomp(gslA,V,S,work);
+	gsl_linalg_SV_solve(gslA,V,S,gslb,x);
+	for(int i = 0; i < columns ; i++)
+	{
+		result[i][0] = gsl_vector_get(x,i);
+	}
+	
+    
     cerr << "Solve completed!" << endl;
+	/*
+	arma::mat armaA(A.rows,A.cols);//cvImg is a cv::Mat
+	Cv_mat_to_arma_mat(A,armaA);
+	arma::mat armab(b.rows,b.cols);//cvImg is a cv::Mat
+	Cv_mat_to_arma_mat(b,armab);
+	arma::mat x1 = spsolve(A, b,"superlu");
+	Arma_mat_to_cv_mat<float>(arma_img,result);
+	*/
 
     for(int i = 0; i < result.rows; i+=2){
-        float x = result[i][0];
-        float y = result[i+1][1];
+        float x = result[0][i];
+        float y = result[0][i+1];
         cv::circle(img, cv::Point((int)x, (int)y), 2.5, cv::Scalar(255), -1);
     }
 
-    
+    cout << "show picture" << endl;
     cv::imshow("Display Image", img);
+	cv::imwrite("results/global.png", img);
     cv::waitKey(0);
 }
 
@@ -257,87 +642,6 @@ void GetLines(cv::Mat3b const& img, std::vector<cv::Vec4i>& out){
     cv::HoughLinesP( response, out, HoughDistRes, HoughAngRes, HoughThres, HoughMinLen, HoughMaxGap );
 }
 
-
-
-void GeneratingQuad(cv::Vec4i const& Quad, std::vector<cv::Point> const& vertexMap, LineSeg Edges, cv::Mat1f& out)
-{
-    int intersect_ct = 0;
-    //Ray will only intersect two points or one point or even no point
-    cv::Mat1f Z = cv::Mat1f::zeros(4, 8);
-    //horizontal
-    LineSeg edgeAB(vertexMap[Quad[0]], vertexMap[Quad[1]]);
-    LineSeg edgeCD(vertexMap[Quad[2]], vertexMap[Quad[3]]);
-
-    if( Edges.isIntersectionLine(edgeAB))
-    {
-        cv::Point p = Edges.IntersectionPointWith(edgeAB);
-        float inv_AB = 1/(vertexMap[Quad[0]].x - vertexMap[Quad[1]].x);
-        assert(inv_AB!=0);
-        Z[0 + intersect_ct*2][0] = (vertexMap[Quad[1]].x - p.x) * inv_AB;
-        Z[0 + intersect_ct*2][1] = (p.x - vertexMap[Quad[0]].x) * inv_AB;
-
-        inv_AB = 1/(vertexMap[Quad[0]].y - vertexMap[Quad[1]].y);
-        Z[1 + intersect_ct*2][0] = (vertexMap[Quad[1]].y - p.y) * inv_AB;
-        Z[1 + intersect_ct*2][1] = (p.y - vertexMap[Quad[0]].y) * inv_AB; 
-        intersect_ct++;    
-    }
-
-    if ( Edges.isIntersectionLine(edgeCD) )
-    {
-        cv::Point p = Edges.IntersectionPointWith(edgeCD);
-        float inv_CD = 1/(vertexMap[Quad[2]].x - vertexMap[Quad[3]].x);
-        assert(inv_CD!=0);
-        Z[0 + intersect_ct*2][2] = (vertexMap[Quad[3]].x - p.x) * inv_CD;
-        Z[0 + intersect_ct*2][3] = (p.x - vertexMap[Quad[2]].x) * inv_CD;
-        inv_CD = 1/(vertexMap[Quad[2]].y - vertexMap[Quad[3]].y);
-        Z[1 + intersect_ct*2][2] = (vertexMap[Quad[3]].y - p.y) * inv_CD;
-        Z[1 + intersect_ct*2][3] = (p.y - vertexMap[Quad[2]].y) * inv_CD;
-        intersect_ct++;    
-    }
-    //vertical
-    LineSeg edgeAC(vertexMap[Quad[0]], vertexMap[Quad[2]]);
-    LineSeg edgeBD(vertexMap[Quad[1]], vertexMap[Quad[3]]);
-    if ( Edges.isIntersectionLine(edgeBD) )
-    {
-        cv::Point p = Edges.IntersectionPointWith(edgeBD);
-        float inv_BD = 1/(vertexMap[Quad[0]].x - vertexMap[Quad[2]].x);
-        assert(inv_BD!=0);
-        Z[0 + intersect_ct*2][3] = (vertexMap[Quad[1]].x - p.x) * inv_BD;
-        Z[0 + intersect_ct*2][1] = (p.x - vertexMap[Quad[3]].x) * inv_BD;
-
-        inv_BD = 1/(vertexMap[Quad[0]].y - vertexMap[Quad[2]].y);
-        Z[1 + intersect_ct*2][3] = (vertexMap[Quad[1]].y - p.y) * inv_BD;
-        Z[1 + intersect_ct*2][1] = (p.y - vertexMap[Quad[3]].y) * inv_BD;
-        intersect_ct++;    
-    }
-
-    if ( Edges.isIntersectionLine(edgeAC) )
-    {
-        cv::Point p = Edges.IntersectionPointWith(edgeAC);
-        float inv_AC = 1/vertexMap[Quad[1]].x - vertexMap[Quad[3]].x;
-        assert(inv_AC!=0);
-        Z[0 + intersect_ct*2][2] = (vertexMap[Quad[0]].x - p.x) * inv_AC;
-        Z[0 + intersect_ct*2][0] = (p.x - vertexMap[Quad[2]].x) * inv_AC;
-
-        inv_AC = 1/vertexMap[Quad[1]].y - vertexMap[Quad[3]].y;
-        Z[1 + intersect_ct*2][2] = (vertexMap[Quad[0]].y - p.y) * inv_AC;
-        Z[1 + intersect_ct*2][0] = (p.y - vertexMap[Quad[2]].y) * inv_AC;
-        intersect_ct++;    
-    }
-    
-    assert(intersect_ct>=0); 
-    assert(intersect_ct<=2);
-    if(intersect_ct>=2)
-    {
-        cv::Mat1f pre = cv::Mat1f::zeros(2, 4);
-        pre[0][0] = 1;
-        pre[0][2] = -1;
-        pre[1][1] = 1;
-        pre[1][3] = -1;
-        //(2,4)*(4, 8)=(2,8)
-        out = pre * Z;
-    }
-}
 
 
 

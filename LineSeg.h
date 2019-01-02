@@ -11,7 +11,22 @@
 #include<assert.h>
 
 #include <string>
+inline double PI() { return std::atan(1)*4; }
 
+inline float find_closest_in_bin(float theta, int bin)
+{
+	float min = 1000;
+	float angle = 0;
+	for(int i = 1; i< bin ; i++)
+	{
+		if(std::abs(theta - PI()/i) < min)
+		{
+			min = std::abs(theta - PI()/i);
+			angle = PI()/i - theta;
+		}
+	}
+	return angle;
+}
 class LineSeg
 {
 	public:
@@ -27,6 +42,29 @@ class LineSeg
 		{
 			origin = in_origin;
 			end = in_end;
+		}
+
+		float getTan()
+		{
+			return (end.y-origin.y)/(end.x-origin.x);
+		}
+
+		cv::Point2f getdir()
+		{
+			float x = end.x - origin.x;
+			float y = end.y - origin.y;
+			cv::Point2f dir(x,y);
+			dir = dir/sqrtf(x*x + y*y);
+			return dir;
+		}
+
+		bool is_parrallel(LineSeg line)
+		{
+			if(line.getdir().x == this->getdir().x && line.getdir().y == this->getdir().y )
+			{
+				return true;
+			}
+			return false;
 		}
 		cv::Point2f IntersectionPointWith(LineSeg line)
 		{
