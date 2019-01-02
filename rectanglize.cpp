@@ -10,10 +10,11 @@
 #include <cmath>
 #include <string>
 #include "LineSeg.h"
-//#include <armadillo>
-#include <gsl/gsl_matrix.h>
-#include <gsl/gsl_vector.h>
-#include <gsl/gsl_linalg.h>
+#define ARMA_DONT_USE_WRAPPER
+#include <armadillo>
+// #include <gsl/gsl_matrix.h>
+// #include <gsl/gsl_vector.h>
+// #include <gsl/gsl_linalg.h>
 #include <unistd.h>
 
 constexpr float inf = 100000000;//std::numeric_limits<double>::infinity();
@@ -64,36 +65,36 @@ int main(int argc, char** argv )
 	std::vector<cv::Point> Mesh;
     std::vector<cv::Vec4i> Quad;
     std::vector<int> Boundary_types;
-	UnwarpGrid(displace, Mesh, Quad, Boundary_types, 20);
+	UnwarpGrid(displace, Mesh, Quad, Boundary_types, 10);
 
     std::vector<cv::Vec4i> lines;
     GetLines(image, lines);
 
-    cv::Mat3b tmp(image);
+    cv::Mat3b tmp = (image.clone());
     for(auto& p : Mesh){
         cv::circle(tmp, p, 2.5, cv::Scalar(255), -1);
     }
-    for( auto& l : lines )
-    {
-        if(border(cv::Point(l[0], l[1]))==0 || border(cv::Point(l[2], l[3]))==0)
-            cv::line( image, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(0,0,255), 2, 8 );
-    }
+    // for( auto& l : lines )
+    // {
+    //     if(border(cv::Point(l[0], l[1]))==0 || border(cv::Point(l[2], l[3]))==0)
+    //         cv::line( image, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(0,0,255), 2, 8 );
+    // }
 
 
     cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
     cout << Quad.size() << endl;
     int p;
     //while(cin >> p){
-        cv::circle(image, Mesh[Quad[p][0]], 2.5, cv::Scalar(255), -1);
-    cv::imshow("Display Image", image);
-    cv::waitKey(0);
-        cv::circle(image, Mesh[Quad[p][1]], 2.5, cv::Scalar(255), -1);
-    cv::imshow("Display Image", image);
-    cv::waitKey(0);
-        cv::circle(image, Mesh[Quad[p][2]], 2.5, cv::Scalar(255), -1);
-    cv::imshow("Display Image", image);
-    cv::waitKey(0);
-        cv::circle(image, Mesh[Quad[p][3]], 2.5, cv::Scalar(255), -1);
+    //     cv::circle(image, Mesh[Quad[p][0]], 2.5, cv::Scalar(255), -1);
+    // cv::imshow("Display Image", image);
+    // cv::waitKey(0);
+    //     cv::circle(image, Mesh[Quad[p][1]], 2.5, cv::Scalar(255), -1);
+    // cv::imshow("Display Image", image);
+    // cv::waitKey(0);
+    //     cv::circle(image, Mesh[Quad[p][2]], 2.5, cv::Scalar(255), -1);
+    // cv::imshow("Display Image", image);
+    // cv::waitKey(0);
+    //     cv::circle(image, Mesh[Quad[p][3]], 2.5, cv::Scalar(255), -1);
     cv::imshow("Display Image", tmp);
     cv::waitKey(0);
     //}
@@ -482,6 +483,7 @@ void DrawMatrix(
     int N = Quads.size();
     int M = seg_lines.size();    
     int K = 0;
+    int V = vertex_map.size();
 	int T = 2*vertex_map.size();
     for(auto& type : Boundary_types){
         if(type >= 0 && type <= 3) K++;
@@ -666,12 +668,15 @@ void DrawMatrix(
     cerr << "ready for solve!" << endl;
 	cerr << "A rows: " << rows << endl;
 	cerr << "A cols: " << T << endl;
-    cv::Mat1f result;
-	cv::solve(A, b, result, cv::DECOMP_SVD);
-	for(int i =0 ;i< T; i++)
-	{
-		//cout << result[0][i] << endl;
-	}
+
+
+
+ //    cv::Mat1f result;
+	// cv::solve(A, b, result, cv::DECOMP_SVD);
+	// for(int i =0 ;i< T; i++)
+	// {
+	// 	//cout << result[0][i] << endl;
+	// }
 	/*
 	gsl_matrix *gslA = gsl_matrix_alloc(rows,columns);
 	gsl_vector *gslb = gsl_vector_alloc(rows);
@@ -696,7 +701,15 @@ void DrawMatrix(
 		result[i][0] = gsl_vector_get(x,i);
 	}
 	*/
-    
+    arma::mat armaA(rows, columns);
+    arma::vec armab(rows);
+    for(int i = 0; i < rows; i++){
+        for(int j = 0; j < columns; j++){
+            armaA(i,j) = (double)A[i][j];
+        }
+        armab[i] = (double)b[i][0];
+    }
+    arma::vec res = arma::solve(armaA, armab);
     cerr << "Solve completed!" << endl;
 	/*
 	arma::mat armaA(A.rows,A.cols);//cvImg is a cv::Mat
@@ -707,15 +720,76 @@ void DrawMatrix(
 	Arma_mat_to_cv_mat<float>(arma_img,result);
 	*/
 
-    for(int i = 0; i < result.rows; i+=2){
-        float x = result[0][i];
-        float y = result[0][i+1];
-        cv::circle(img, cv::Point((int)x, (int)y), 2.5, cv::Scalar(255), -1);
+    std::vector<cv::Point2f> vertex_map_warped(V);
+    for(int i = 0; i < V; i++){
+        assert(2*i+1 < res.size());
+
+        vertex_map_warped[i].x = res[2*i];
+        vertex_map_warped[i].y = res[2*i+1];
+
+        cv::circle(img, cv::Point2i(res[2*i], res[2*i+1]), 2.5, cv::Scalar(0, 0, 255), -1);
+    }
+    cout << "made vertexmap warped." << endl;
+
+    cv::Mat2i SourcePixel(img.size());
+    cv::Mat1b HasSource = cv::Mat1b::zeros(img.size());
+    for(int i = 0; i < N; i++){
+        cv::Vec4i qd = Quads[i];
+        cv::Point2f vA = vertex_map_warped[qd[0]];
+        cv::Point2f vB = vertex_map_warped[qd[1]];
+        cv::Point2f vC = vertex_map_warped[qd[2]];
+        cv::Point2f vD = vertex_map_warped[qd[3]];
+
+        cv::Point2f srcA(vertex_map[qd[0]]);
+        cv::Point2f srcB(vertex_map[qd[1]]);
+        cv::Point2f srcC(vertex_map[qd[2]]);
+        cv::Point2f srcD(vertex_map[qd[3]]);
+
+        double Area = 0.5*(vB-vA).cross(vC-vA) + 0.5*(vB-vD).cross(vC-vD);
+        int l = (int)std::sqrt(Area);
+        for(int j = 0; j < l; j++){
+            for(int k = 0; k < l; k++){
+                // find weights
+                cv::Vec4f weights;
+                weights[0] = (l-j)*(l-k);
+                weights[1] = j*(l-k);
+                weights[2] = (l-j)*k;                
+                weights[3] = j*k;
+                weights /= cv::norm(weights);
+
+                // warp to global
+                cv::Point dst(weights[0]*vA + weights[1]*vB + weights[2]*vC + weights[3]*vD);
+                cv::Point src(weights[0]*srcA + weights[1]*srcB + weights[2]*srcC + weights[3]*srcD);
+
+                if(dst.x < img.cols && dst.x >= 0 && dst.y < img.rows && dst.y >= 0){
+                    SourcePixel(dst) = {src.x, src.y};
+                    HasSource(dst) = 1;
+                }else{
+                    cout << "[debug] "<< dst.x << ", " << dst.y << endl;
+                }
+            }
+        }
+    }
+    cout << "Displacement completed. Warping..." << endl;
+    cout << HasSource.rows << ", " << HasSource.cols << endl;
+    cout << img.rows << ", " << img.cols << endl;
+    cv::Mat3b unwarped_img(img.size());
+    for(int x = 0; x < img.cols; x++){
+        for(int y = 0; y < img.rows; y++){
+            cv::Point dst(x, y);
+            // cerr << dst.x << ", " << dst.y << endl;
+            if(HasSource(dst)){
+                // cerr << " has source. ";
+                cv::Point src(SourcePixel(dst));
+                // cerr << "at " << src.x << ", " << src.y << endl;
+                unwarped_img(dst) = img(src);
+            }
+        }
     }
 
     cout << "show picture" << endl;
     cv::imshow("Display Image", img);
-	cv::imwrite("results/global.png", img);
+    cv::imwrite("results/global.png", img);
     cv::waitKey(0);
 }
 
