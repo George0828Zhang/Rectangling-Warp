@@ -9,7 +9,7 @@
 #include <cmath>
 #include "LineSeg.h"
 #define ARMA_DONT_USE_WRAPPER
-// #define ARMA_NO_DEBUG
+#define ARMA_NO_DEBUG
 #include <armadillo>
 #include <unistd.h>
 #include "rectanglize.hpp"
@@ -856,9 +856,9 @@ void DrawMatrix(
 		}
 	}
 	std::cout << "show picture" << std::endl;
+	cv::imwrite("results/global.png", unwarped_img);
 #ifdef SHOWIMGS
 	cv::imshow("Display Image", unwarped_img);
-	cv::imwrite("results/global.png", unwarped_img);
 	cv::waitKey(0);
 #endif
 }

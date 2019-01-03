@@ -114,9 +114,7 @@ void SeamHorizontal(
 				phi[i][j] = i + 1;
 			}
 			delta[i][j] = energy[i][j] + mn;
-			if(border[i][j]){
-				delta[i][j] = inf;
-			}else if(seamed[i][j]){
+			if(seamed[i][j]){
 				delta[i][j] += penalty;
 			} 
 		}
@@ -134,13 +132,9 @@ void SeamHorizontal(
 		
 		if(up && best_i > 0){
 			displacements[best_i][j][0] += 1;
-			auto tmp = border(cv::Rect(j, 1, 1, best_i)).clone();
-			tmp.copyTo(border(cv::Rect(j, 0, 1, best_i)));
 		}
 		else if(best_i < r-1){          
 			displacements[best_i][j][1] += 1;
-			auto tmp = border(cv::Rect(j, best_i, 1, r - best_i - 1)).clone();
-			tmp.copyTo(border(cv::Rect(j, best_i + 1, 1, r - best_i - 1)));
 
 		}
 
@@ -197,36 +191,30 @@ void SeamVertical(
 				phi[i][j] = j + 1;
 			}
 			delta[i][j] = energy[i][j] + mn;
-			if(border[i][j]){
-				delta[i][j] = inf;
-			}else if(seamed[i][j]){
+			if(seamed[i][j]){
 				delta[i][j] += penalty;
 			} 
 		}
 	}
 
-	int best_x = 0;	
+	int best_j = 0;	
 	for(int j = 1; j < c; j++){
-		if(delta[r-1][j]<delta[r-1][best_x]){
-			best_x = j;
+		if(delta[r-1][j]<delta[r-1][best_j]){
+			best_j = j;
 		}
 	}
 	// back-tracking	
-	for(int y = r-1; y >= 0; y--){
+	for(int i = r-1; i >= 0; i--){
 		
-		if(left && best_x > 0){
-			displacements[y][best_x][2] += 1;
-			auto tmp = border(cv::Rect(1, y, best_x, 1)).clone();
-			tmp.copyTo(border(cv::Rect(0, y, best_x, 1)));
+		if(left && best_j > 0){
+			displacements[i][best_j][2] += 1;
 		}
-		else if(best_x < c-1){
-			displacements[y][best_x][3] += 1;
-			auto tmp = border(cv::Rect(best_x, y, c - 1 - best_x, 1)).clone();
-			tmp.copyTo(border(cv::Rect(best_x+1, y, c - 1 - best_x, 1)));
+		else if(best_j < c-1){
+			displacements[i][best_j][3] += 1;
 		}
 
-		seamed[y][best_x] = 255;
-		best_x = phi[y][best_x];
+		seamed[i][best_j] = 255;
+		best_j = phi[i][best_j];
 	}
 }
 
@@ -327,7 +315,8 @@ void FindBorder(cv::Mat1b const& img, cv::Mat1b& out){
 	cv::Mat1b visit = cv::Mat1b::zeros(img.size());
 	cv::Mat1b minpool;
 	auto element = cv::getStructuringElement( cv::MORPH_RECT, cv::Size(3, 3) );
-	cv::erode( img, minpool, element );
+	cv::GaussianBlur(img, minpool, cv::Size(11, 11), 0, 0, cv::BORDER_DEFAULT);
+	// cv::erode( img, minpool, element );
 
 	for(int y = 0; y < r; y++){
 		test.push(cv::Point(0, y));
@@ -367,11 +356,12 @@ void FindBorder(cv::Mat1b const& img, cv::Mat1b& out){
 		test.pop();        
 	}
 
-	int dilation_size = 5;
-	element = cv::getStructuringElement( cv::MORPH_RECT, cv::Size(dilation_size, dilation_size) );
-	cv::Mat tmp;
-	cv::dilate( out, tmp, element );
-	cv::GaussianBlur(tmp, out, cv::Size(11, 11), 0, 0, cv::BORDER_DEFAULT);
+	// int dilation_size = 3;
+	// element = cv::getStructuringElement( cv::MORPH_RECT, cv::Size(dilation_size, dilation_size) );
+	// cv::Mat tmp;
+	// cv::dilate( out, tmp, element );
+	// cv::GaussianBlur(tmp, out, cv::Size(13, 13), 0, 0, cv::BORDER_DEFAULT);
+	cv::GaussianBlur(out, out, cv::Size(13, 13), 0, 0, cv::BORDER_DEFAULT);
 	cv::threshold(out, out, 0, 255, cv::THRESH_BINARY);
 }
 void localWarping(cv::Mat3b const& image, cv::Mat1b& border, cv::Mat2i& displacement){
@@ -397,69 +387,68 @@ void localWarping(cv::Mat3b const& image, cv::Mat1b& border, cv::Mat2i& displace
 	cv::Mat1f grad_y;
 	cv::Mat1f energy;
 
-	// std::vector<cv::Rect> subseq;
-	// std::vector<char> tpseq;
+	std::vector<cv::Rect> subseq;
+	std::vector<char> tpseq;
 
-	// std::vector<int> work;
-	// while((tp = subImage(border_tmp, sub)) != -1){
-	// 	subseq.push_back(sub);
-	// 	tpseq.push_back(tp);
+	std::vector<int> work;
+	// cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
+	while((tp = subImage(border_tmp, sub)) != -1){
+		subseq.push_back(sub);
+		tpseq.push_back(tp);
 
-	// 	work.push_back(sub.width*(!(tp/2))+sub.height*(tp/2));
-	// 	if(work.size()>1)
-	// 		work.back() += work[work.size()-2];
+		work.push_back(sub.width*(!(tp/2))+sub.height*(tp/2));
+		if(work.size()>1)
+			work.back() += work[work.size()-2];
 
-	// 	cv::Rect window;
-	// 	cv::Point move;
-	// 	switch(tp){
-	// 		case 0:
-	// 		window = cv::Rect(sub.x, 0, sub.width, 1);
-	// 		move = cv::Point(0, 1);			
-	// 		// cerr << "Up" << endl;
-	// 		break;
-	// 		case 1:
-	// 		window = cv::Rect(sub.x, r-1, sub.width, 1);
-	// 		move = cv::Point(0, -1);
-	// 		// cerr << "Down" << endl;
-	// 		break;
-	// 		case 2:
-	// 		window = cv::Rect(0, sub.y, 1, sub.height);
-	// 		move = cv::Point(1, 0);
-	// 		// cerr << "Left" << endl;
-	// 		break;
-	// 		case 3:
-	// 		window = cv::Rect(c-1, sub.y, 1, sub.height);
-	// 		move = cv::Point(-1, 0);
-	// 		// cerr << "Right" << endl;
-	// 		break;
-	// 	}
+		cv::Rect window;
+		cv::Point move;
+		switch(tp){
+			case 0:
+			window = cv::Rect(sub.x, 0, sub.width, 1);
+			move = cv::Point(0, 1);			
+			// cerr << "Up" << endl;
+			break;
+			case 1:
+			window = cv::Rect(sub.x, r-1, sub.width, 1);
+			move = cv::Point(0, -1);
+			// cerr << "Down" << endl;
+			break;
+			case 2:
+			window = cv::Rect(0, sub.y, 1, sub.height);
+			move = cv::Point(1, 0);
+			// cerr << "Left" << endl;
+			break;
+			case 3:
+			window = cv::Rect(c-1, sub.y, 1, sub.height);
+			move = cv::Point(-1, 0);
+			// cerr << "Right" << endl;
+			break;
+		}
 		
-	// 	while(cv::countNonZero(border_tmp(window))>0){
-	// 		cv::Rect src(window.x+move.x, window.y+move.y, window.width, window.height);
-	// 		if(src.x < 0 || src.y < 0 || src.x >= c || src.y >= r)
-	// 			break;
-	// 		border_tmp(src).copyTo(border_tmp(window));
-	// 		window = src;
-	// 	}
-	// }
+		while(cv::countNonZero(border_tmp(window))>0){
+			cv::Rect src(window.x+move.x, window.y+move.y, window.width, window.height);
+			if(src.x < 0 || src.y < 0 || src.x >= c || src.y >= r)
+				break;
+			border_tmp(src).copyTo(border_tmp(window));
+			window = src;
+		}
+	}
 
 	cv::Sobel(img, grad_x, grad_x.type(), 1, 0, 5, 1, 0, cv::BORDER_DEFAULT);
 	cv::Sobel(img, grad_y, grad_y.type(), 0, 1, 5, 1, 0, cv::BORDER_DEFAULT);
 	cv::normalize(grad_x, grad_x, -1., 1., cv::NORM_MINMAX, -1);
 	cv::normalize(grad_y, grad_y, -1., 1., cv::NORM_MINMAX, -1);
-	energy = grad_x.mul(grad_x) + grad_y.mul(grad_y);
+	energy = grad_x.mul(grad_x) + grad_y.mul(grad_y) + cv::Mat1f(border)*inf;
 
-	// for(int i = 0; i < subseq.size(); i++){
-	while((tp = subImage(border, sub)) != -1){
-		// sub = subseq[i];
+	for(int i = 0; i < subseq.size(); i++){
+		sub = subseq[i];
 		auto img_sub = img(sub);
 		auto border_sub = border(sub);        
 		auto seamed_sub = seamed(sub);
 		auto energy_sub = energy(sub);
 		auto disp_sub = disps(sub);
 
-		// switch(tpseq[i]){
-		switch(tp){
+		switch(tpseq[i]){
 			case 0:
 			// top
 			SeamHorizontal(img_sub, border_sub, seamed_sub, disp_sub, energy_sub, true);
@@ -481,11 +470,9 @@ void localWarping(cv::Mat3b const& image, cv::Mat1b& border, cv::Mat2i& displace
 			// cerr << "1 seams right." << endl;
 			break;
 		}
-		cv::imshow("Display Image", border);
-		cv::waitKey(0);
-		// std::string bar(30, '.');
-		// std::fill(bar.begin(), bar.begin() + (int)std::floor(30 * work[i] / work.back()),'=');
-		// std::cerr << "(" << i+1 << "/" << subseq.size() << ") seams done. Progress [" << bar << "]\r";
+		std::string bar(30, '.');
+		std::fill(bar.begin(), bar.begin() + (int)std::floor(30 * work[i] / work.back()),'=');
+		std::cerr << "(" << i+1 << "/" << subseq.size() << ") seams done. Progress [" << bar << "]\r";
 	}
 	std::cerr << std::endl << "Local warping complete." << std::endl;
 
