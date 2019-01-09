@@ -582,7 +582,10 @@ void DrawMatrix(
 			int v_index = qd[v];
 
 
-			if(Boundary_types[v_index]<0 || Boundary_types[v_index]>3)
+			if(Boundary_types[v_index]<0)
+				continue;
+
+			if(Boundary_types[v_index]>3)
 				continue;
 
 
@@ -641,7 +644,6 @@ void DrawMatrix(
 			if(t==4)
 			{
 				// up & left
-				
 				temp_mat[0][ 2 * v_index + 1 ] = inf;
 				if(countNonZero(temp_mat))
 				{// y = 0
@@ -655,7 +657,6 @@ void DrawMatrix(
 					A_queue.push_back(temp_mat);
 					b_queue.push_back(0);
 				}
-
 			}
 			if(t==5)
 			{
@@ -702,7 +703,7 @@ void DrawMatrix(
 					b_queue.push_back((Rows - 1)*inf);
 				}
 				temp_mat = cv::Mat1f::zeros(1,T);
-				temp_mat[0][ 2 * v_index ] = inf*2;
+				temp_mat[0][ 2 * v_index ] = inf;
 				if(countNonZero(temp_mat))
 				{// x = c - 1
 					A_queue.push_back(temp_mat);
@@ -747,16 +748,16 @@ void DrawMatrix(
 
 		vertex_map_warped[i].x = res[2*i];
 		vertex_map_warped[i].y = res[2*i+1];
-		// if(Boundary_types[i]==4){
-		// 	vertex_map_warped[i] = cv::Point2f(0,0);
-		// }
-		// else if(Boundary_types[i]==5){
-		// 	vertex_map_warped[i] = cv::Point2f(Cols-1,0);
-		// }else if(Boundary_types[i]==6){
-		// 	vertex_map_warped[i] = cv::Point2f(0,Rows-1);
-		// }else if(Boundary_types[i]==7){
-		// 	vertex_map_warped[i] = cv::Point2f(Cols-1,Rows-1);
-		// }
+		if(Boundary_types[i]==4){
+			vertex_map_warped[i] = cv::Point2d(0,0);
+		}
+		else if(Boundary_types[i]==5){
+			vertex_map_warped[i] = cv::Point2d(Cols-1,0);
+		}else if(Boundary_types[i]==6){
+			vertex_map_warped[i] = cv::Point2d(0,Rows-1);
+		}else if(Boundary_types[i]==7){
+			vertex_map_warped[i] = cv::Point2d(Cols-1,Rows-1);
+		}
 	}
 
 
@@ -889,11 +890,11 @@ void DrawMatrix(
 	}
 	std::cout << "Unwarp complete." << std::endl;
 
-	// for(int i = 0; i < V; i++){
-	// 	if(Boundary_types[i]>3){
-	//     	cv::circle(unwarped_img, cv::Point(vertex_map_warped[i]), 3, cv::Scalar(0, 0, 255), -1);
-	// 	}
-	// }
+	for(int i = 0; i < V; i++){
+		if(Boundary_types[i]>3){
+	    	cv::circle(unwarped_img, cv::Point(vertex_map_warped[i]), 3, cv::Scalar(0, 0, 255), -1);
+		}
+	}
 	std::cout << "show picture" << std::endl;
 	cv::imwrite("results/global.png", unwarped_img);
 #ifdef SHOWIMGS
