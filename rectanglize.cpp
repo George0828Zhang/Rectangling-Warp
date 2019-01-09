@@ -60,10 +60,18 @@ int main(int argc, char** argv )
 	std::vector<cv::Vec4i> lines;
 	GetLines(image, lines);
 
-	cv::Mat3b tmp = (image.clone());
-	for(auto& p : Mesh){
-		cv::circle(tmp, p, 2.5, cv::Scalar(255), -1);
-	}
+	// cv::Mat3b tmp = (image.clone());
+	// for(int i = 0; i < Mesh.size(); i++){
+ //        auto p = Mesh[i];
+	// 	cv::circle(tmp, p, 2.5, cv::Scalar(255), -1);
+ //        if(p==cv::Point(0, 0))
+ //            std::cout << "i=" << i << std::endl;
+	// }
+// for(auto& p : Mesh){
+//         cv::circle(tmp, p, 2.5, cv::Scalar(255), -1);
+//         if(p==cv::Point(0, 0))
+            
+//     }
 	// for( auto& l : lines )
 	// {
 	//     if(border(cv::Point(l[0], l[1]))==0 || border(cv::Point(l[2], l[3]))==0)
@@ -465,6 +473,9 @@ void DrawMatrix(
 
 	std::vector<cv::Mat1f> A_queue;
 	std::vector<float> b_queue;
+
+
+    // std::cout <<  << "fucku" << std::endl;
 
 	// Shape Preservation NxT	
 	arma::mat Aq = {
@@ -878,11 +889,11 @@ void DrawMatrix(
 	}
 	std::cout << "Unwarp complete." << std::endl;
 
-	for(int i = 0; i < V; i++){
-		if(Boundary_types[i]>3){
-	    	cv::circle(unwarped_img, cv::Point(vertex_map_warped[i]), 3, cv::Scalar(0, 0, 255), -1);
-		}
-	}
+	// for(int i = 0; i < V; i++){
+	// 	if(Boundary_types[i]>3){
+	//     	cv::circle(unwarped_img, cv::Point(vertex_map_warped[i]), 3, cv::Scalar(0, 0, 255), -1);
+	// 	}
+	// }
 	std::cout << "show picture" << std::endl;
 	cv::imwrite("results/global.png", unwarped_img);
 #ifdef SHOWIMGS
