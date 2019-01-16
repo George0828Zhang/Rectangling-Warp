@@ -13,9 +13,10 @@
 #include <armadillo>
 #include <unistd.h>
 #include "rectanglize.hpp"
-// #define SHOWIMGS
+#define SHOWIMGS
 
 constexpr float inf = 100000000;
+constexpr float DOWNSCALE = 2;
 constexpr float LAMBDA_L = 100;
 constexpr int HORIZONTAL = 0;
 constexpr int VERTICAL = 1;
@@ -35,7 +36,7 @@ void DrawMatrix(
 	std::vector<int> const& Boundary_types, 
 	std::vector<cv::Point> const& vertex_map, 
 	std::vector<cv::Vec4i> const& seg_lines,
-	cv::Mat3b& img );
+	cv::Mat3b const& img );
 
 int main(int argc, char** argv )
 {
@@ -48,7 +49,9 @@ int main(int argc, char** argv )
 	}
 	cropOuter(image);
 
-	cv::Mat2i displace = cv::Mat2i::zeros(image.size());
+	cv::Mat3b big_image = image.clone();
+	cv::resize(image, image, cv::Size(), 1/DOWNSCALE, 1/DOWNSCALE, cv::INTER_LINEAR);
+	cv::Mat2i displace;
 	cv::Mat1b border;
 	localWarping(image, border, displace);
 
@@ -60,18 +63,23 @@ int main(int argc, char** argv )
 	std::vector<cv::Vec4i> lines;
 	GetLines(image, lines);
 
-	// cv::Mat3b tmp = (image.clone());
+	cv::Mat3b tmp(image.clone());
 	// for(int i = 0; i < Mesh.size(); i++){
  //        auto p = Mesh[i];
 	// 	cv::circle(tmp, p, 2.5, cv::Scalar(255), -1);
  //        if(p==cv::Point(0, 0))
  //            std::cout << "i=" << i << std::endl;
 	// }
-// for(auto& p : Mesh){
-//         cv::circle(tmp, p, 2.5, cv::Scalar(255), -1);
-//         if(p==cv::Point(0, 0))
-            
-//     }
+	for(auto& qd : Quad){
+		cv::Point vA(Mesh[qd[0]]);
+		cv::Point vB(Mesh[qd[1]]);
+		cv::Point vC(Mesh[qd[2]]);
+		cv::Point vD(Mesh[qd[3]]);
+        cv::line( tmp, vA, vB, cv::Scalar(0,0,255), 1, 4 );
+        cv::line( tmp, vA, vC, cv::Scalar(0,0,255), 1, 4 );
+        cv::line( tmp, vC, vD, cv::Scalar(0,0,255), 1, 4 );
+        cv::line( tmp, vB, vD, cv::Scalar(0,0,255), 1, 4 );
+    }
 	// for( auto& l : lines )
 	// {
 	//     if(border(cv::Point(l[0], l[1]))==0 || border(cv::Point(l[2], l[3]))==0)
@@ -84,7 +92,7 @@ int main(int argc, char** argv )
 	cv::waitKey(0);
 #endif
 
-	DrawMatrix(image.rows, image.cols, Quad, Boundary_types, Mesh, lines, image);
+	DrawMatrix(image.rows, image.cols, Quad, Boundary_types, Mesh, lines, big_image);
 	//Converge(image.rows, image.cols, Quad, Boundary_types, Mesh, lines, image);
 
 	return 0;
@@ -463,7 +471,7 @@ void DrawMatrix(
 	std::vector<int> const& Boundary_types, 
 	std::vector<cv::Point> const& vertex_map, 
 	std::vector<cv::Vec4i> const& seg_lines,
-	cv::Mat3b& img )
+	cv::Mat3b const& img )
 {
 	int N = Quads.size();
 	int M = 0;//seg_lines.size();
@@ -475,7 +483,7 @@ void DrawMatrix(
 	std::vector<float> b_queue;
 
 
-    // std::cout <<  << "fucku" << std::endl;
+	// std::cout <<  << "fucku" << std::endl;
 
 	// Shape Preservation NxT	
 	arma::mat Aq = {
@@ -582,10 +590,10 @@ void DrawMatrix(
 			int v_index = qd[v];
 
 
-			if(Boundary_types[v_index]<0)
+			if(Boundary_types[v_index]<TOP)
 				continue;
 
-			if(Boundary_types[v_index]>3)
+			if(Boundary_types[v_index]>RIGHT)
 				continue;
 
 
@@ -595,7 +603,7 @@ void DrawMatrix(
 			int t = Boundary_types[v_index];
 			cv::Mat1f temp_mat = cv::Mat1f::zeros(1,T);
 		
-			if(t==0)
+			if(t==TOP)
 			{
 				// up
 				
@@ -606,7 +614,7 @@ void DrawMatrix(
 					b_queue.push_back(0);
 				}	
 			}
-			if(t==1)
+			if(t==BOTTOM)
 			{
 				// down
 				
@@ -617,7 +625,7 @@ void DrawMatrix(
 					b_queue.push_back((Rows - 1)*inf);
 				}
 			}
-			if(t==2)
+			if(t==LEFT)
 			{
 				// left
 				
@@ -629,7 +637,7 @@ void DrawMatrix(
 				}
 
 			}
-			if(t==3)
+			if(t==RIGHT)
 			{
 				// right
 				
@@ -641,7 +649,7 @@ void DrawMatrix(
 				}
 			}
 
-			if(t==4)
+			if(t==CORNER_A)
 			{
 				// up & left
 				temp_mat[0][ 2 * v_index + 1 ] = inf;
@@ -658,7 +666,7 @@ void DrawMatrix(
 					b_queue.push_back(0);
 				}
 			}
-			if(t==5)
+			if(t==CORNER_B)
 			{
 				// up & right				
 				temp_mat[0][ 2 * v_index + 1 ] = inf;
@@ -675,7 +683,7 @@ void DrawMatrix(
 					b_queue.push_back((Cols - 1)*inf);
 				}
 			}
-			if(t==6)
+			if(t==CORNER_C)
 			{
 				// down & left			
 				temp_mat[0][ 2 * v_index + 1 ] = inf;
@@ -693,7 +701,7 @@ void DrawMatrix(
 				}
 
 			}
-			if(t==7)
+			if(t==CORNER_D)
 			{
 				// down & right	
 				temp_mat[0][ 2 * v_index + 1 ] = inf;
@@ -737,7 +745,7 @@ void DrawMatrix(
 		}
 		armab[i] = (double)b[i][0];
 	}
-	arma::vec res = arma::solve(armaA, armab);
+	arma::vec res = arma::solve(armaA, armab) * DOWNSCALE;
 	std::cerr << "Solve completed!" << std::endl;
 
 
@@ -748,15 +756,15 @@ void DrawMatrix(
 
 		vertex_map_warped[i].x = res[2*i];
 		vertex_map_warped[i].y = res[2*i+1];
-		if(Boundary_types[i]==4){
+		if(Boundary_types[i]==CORNER_A){
 			vertex_map_warped[i] = cv::Point2d(0,0);
 		}
-		else if(Boundary_types[i]==5){
-			vertex_map_warped[i] = cv::Point2d(Cols-1,0);
-		}else if(Boundary_types[i]==6){
-			vertex_map_warped[i] = cv::Point2d(0,Rows-1);
-		}else if(Boundary_types[i]==7){
-			vertex_map_warped[i] = cv::Point2d(Cols-1,Rows-1);
+		else if(Boundary_types[i]==CORNER_B){
+			vertex_map_warped[i] = cv::Point2d(img.cols-1,0);
+		}else if(Boundary_types[i]==CORNER_C){
+			vertex_map_warped[i] = cv::Point2d(0,img.rows-1);
+		}else if(Boundary_types[i]==CORNER_D){
+			vertex_map_warped[i] = cv::Point2d(img.cols-1,img.rows-1);
 		}
 	}
 
@@ -771,13 +779,13 @@ void DrawMatrix(
 		// cv::Point2f vB = vertex_map_warped[qd[1]];
 		// cv::Point2f vC = vertex_map_warped[qd[2]];
 		// cv::Point2f vD = vertex_map_warped[qd[3]];
-        cv::Point vA(vertex_map_warped[qd[0]]);
-        cv::Point vB(vertex_map_warped[qd[1]]);
-        cv::Point vC(vertex_map_warped[qd[2]]);
-        cv::Point vD(vertex_map_warped[qd[3]]);
-        cv::Point poly[4] = {vA, vB, vD, vC};
-        cv::fillConvexPoly(visit, poly, 4, cv::Scalar(1), 8, 0);
-        cv::fillConvexPoly(quadex, poly, 4, cv::Scalar(qindex), 8, 0);
+		cv::Point vA(vertex_map_warped[qd[0]]);
+		cv::Point vB(vertex_map_warped[qd[1]]);
+		cv::Point vC(vertex_map_warped[qd[2]]);
+		cv::Point vD(vertex_map_warped[qd[3]]);
+		cv::Point poly[4] = {vA, vB, vD, vC};
+		cv::fillConvexPoly(visit, poly, 4, cv::Scalar(1), 8, 0);
+		cv::fillConvexPoly(quadex, poly, 4, cv::Scalar(qindex), 8, 0);
 
 		// cv::line( visit, vA, vB, cv::Scalar(1), 1, cv::LINE_8 );
 		// cv::line( visit, vA, vC, cv::Scalar(1), 1, cv::LINE_8 );
@@ -815,17 +823,17 @@ void DrawMatrix(
 	}
 
 
-    // cv::Mat1i normed;
-    // cv::normalize(quadex, normed, 0, 255, cv::NORM_MINMAX, -1);
-    // cv::imshow("Display Image", cv::Mat1b(visit*255));
-    // cv::waitKey(0);
+	// cv::Mat1i normed;
+	// cv::normalize(quadex, normed, 0, 255, cv::NORM_MINMAX, -1);
+	// cv::imshow("Display Image", cv::Mat1b(visit*255));
+	// cv::waitKey(0);
 
 	
 	std::cout << "Final interpolation on pixels ..." << std::endl;
 	cv::Mat3b unwarped_img(img.size());
 	for(int x = 0; x < img.cols; x++){
 		for(int y = 0; y < img.rows; y++){
-			cv::Point pix(x, y);
+			cv::Point2d pix(x, y);
 			int qindex = quadex(pix);
 
 			cv::Vec4i qd = Quads[qindex];
@@ -833,56 +841,82 @@ void DrawMatrix(
 			cv::Point2d vB = vertex_map_warped[qd[1]];
 			cv::Point2d vC = vertex_map_warped[qd[2]];
 			cv::Point2d vD = vertex_map_warped[qd[3]];
-			cv::Point2d srcA(vertex_map[qd[0]]);
-			cv::Point2d srcB(vertex_map[qd[1]]);
-			cv::Point2d srcC(vertex_map[qd[2]]);
-			cv::Point2d srcD(vertex_map[qd[3]]);
+			cv::Point2d srcA(vertex_map[qd[0]]*DOWNSCALE);
+			cv::Point2d srcB(vertex_map[qd[1]]*DOWNSCALE);
+			cv::Point2d srcC(vertex_map[qd[2]]*DOWNSCALE);
+			cv::Point2d srcD(vertex_map[qd[3]]*DOWNSCALE);
 
 
-            const double lbd = 0.2;
+			const double lbd = 0.2;
 			arma::mat P = {
 				{ vA.x, vB.x, vC.x, vD.x }, 
 				{ vA.y, vB.y, vC.y, vD.y },
-                {  inf,  inf,  inf,  inf },
-                {  lbd,  0.0,  0.0,  0.0 },
-                {  0.0,  lbd,  0.0,  0.0 },
-                {  0.0,  0.0,  lbd,  0.0 },
-                {  0.0,  0.0,  0.0,  lbd },
-            };
+				{  inf,  inf,  inf,  inf },
+				{  lbd,  0.0,  0.0,  0.0 },
+				{  0.0,  lbd,  0.0,  0.0 },
+				{  0.0,  0.0,  lbd,  0.0 },
+				{  0.0,  0.0,  0.0,  lbd },
+			};
 
-            arma::vec constraint = {
-                (double)x,
-                (double)y,
-                (double)inf,
-                lbd,
-                lbd,
-                lbd,
-                lbd
-            };
+			arma::vec constraint = {
+				(double)x,
+				(double)y,
+				(double)inf,
+				lbd,
+				lbd,
+				lbd,
+				lbd
+			};
 
+			arma::mat interp = arma::solve(P, constraint, arma::solve_opts::fast);
+			
 			arma::mat srcP = {
 				{ srcA.x, srcB.x, srcC.x, srcD.x }, 
 				{ srcA.y, srcB.y, srcC.y, srcD.y } };
 
-			arma::mat interp = arma::solve(P, constraint);
-
 			arma::vec src_v = srcP * interp;
+
+			// arma::mat P = {
+			// 	{ 0, 0 },
+			// 	{ vB.x - vA.x, vB.y - vA.y },
+			// 	{ vC.x - vA.x, vC.y - vA.y },
+			// 	{ vD.x - vA.x, vD.y - vA.y }
+			// };
+
+			// arma::mat const b_1 = {
+			// 	{ 0, 0 },
+			// 	{ 1, 0 },
+			// 	{ 0, 1 },
+			// 	{ 1, 1 } };
+
+			// arma::mat S_trans = arma::solve(P, b_1);
+
+			// arma::vec lm = arma::vec({ x - vA.x, y - vA.y }) * S_trans;
+
+			// cv::Point2d displacement = \
+			// (1-lm[0])*(1-lm[1])*(srcA-vA) \
+			// + lm[0]*(1-lm[1])*(srcB-vB) \
+			// + (1-lm[0])*lm[1]*(srcC-vC) \
+			// + lm[0]*lm[1]*(srcD-vD);
+
+			// double src_v[] = {x+displacement.x, y+displacement.y};
+
 			if(src_v[0]>=0 && src_v[0] < img.cols && src_v[1] >= 0 && src_v[1] < img.rows){
 				double xbase = std::floor(src_v[0]);
 				double ybase = std::floor(src_v[1]);
 				double alpha = src_v[0] - xbase;
 				double beta = src_v[1] - ybase;
 
-                cv::Point topleft(xbase, ybase);
-                cv::Point topright(xbase+1==img.cols ? xbase : (xbase+1), ybase);
-                cv::Point botleft(xbase, ybase+1==img.rows ? ybase : (ybase+1));
-                cv::Point botright(xbase+1==img.cols ? xbase : (xbase+1), ybase+1==img.rows ? ybase : (ybase+1));
+				cv::Point topleft(xbase, ybase);
+				cv::Point topright(xbase+1==img.cols ? xbase : (xbase+1), ybase);
+				cv::Point botleft(xbase, ybase+1==img.rows ? ybase : (ybase+1));
+				cv::Point botright(xbase+1==img.cols ? xbase : (xbase+1), ybase+1==img.rows ? ybase : (ybase+1));
 
-                cv::Vec3f emit = \
-                  (1-alpha)*(1-beta)*img(topleft) \
-                + (alpha)*(1-beta)*img(topright) \
-                + (1-alpha)*(beta)*img(topleft) \
-                + (alpha)*(beta)*img(topleft);
+				cv::Vec3f emit = \
+				  (1-alpha)*(1-beta)*img(topleft) \
+				+ (alpha)*(1-beta)*img(topright) \
+				+ (1-alpha)*(beta)*img(topleft) \
+				+ (alpha)*(beta)*img(topleft);
 
 				unwarped_img(pix) = cv::Vec3b(emit);
 			}
@@ -891,8 +925,8 @@ void DrawMatrix(
 	std::cout << "Unwarp complete." << std::endl;
 
 	for(int i = 0; i < V; i++){
-		if(Boundary_types[i]>3){
-	    	cv::circle(unwarped_img, cv::Point(vertex_map_warped[i]), 3, cv::Scalar(0, 0, 255), -1);
+		if(Boundary_types[i]>=CORNER_A){
+			cv::circle(unwarped_img, cv::Point(vertex_map_warped[i]), 3, cv::Scalar(0, 0, 255), -1);
 		}
 	}
 	std::cout << "show picture" << std::endl;
