@@ -21,3 +21,5 @@ make
 ```bash
 ./rectanglize sample.png
 ```
+## Details
+See Rectangle.pdf for implementation details.
